@@ -38,7 +38,10 @@
 
 //#include "CRC.h"
 //#include "serial_terminal.h"
-#include <string.h>
+
+#include "defines.h"
+#include "tm_stm32_usart.h"
+#include "tm_stm32_usart_dma.h"
 
 /* USER CODE END Includes */
 
@@ -78,9 +81,6 @@ osMessageQId RXBoxM2Handle;
 /* Private variables ---------------------------------------------------------*/
 uint8_t Ts = 5; //Sampling time in ms
 
-uint8_t MW[2];
-uint8_t MB[2];
-
 typedef struct {                                 // Message object structure
         float current[2];
         float velocity[2];
@@ -94,34 +94,20 @@ typedef struct {                                 // Message object structure
 
 T_MEAS    *mptr;
 T_MEAS    *rptr;
-uint8_t TXBuf[14];
-char test[20] = "12345678";
+float *TXBuf[10];
 
 unsigned char Motor_Success[8] = {0xA5, 0xFF, 0x00, 0x01, 0x00, 0x00, 0xCF, 0xB6};
 //These arrays hold all the necessary hex commands to send to motor controllers
-uint8_t Write_Access[12];
-uint8_t Enable_Bridge[12];
-uint8_t Disable_Bridge[12];
+uint8_t Write_Access[11];
+uint8_t Enable_Bridge[11];
+uint8_t Disable_Bridge[20];
 
-uint8_t Current_Command[14];
-uint8_t Position_Command[14];
+uint8_t Current_Command[13];
+uint8_t Position_Command[13];
 
-uint8_t Read_Current[8];
-uint8_t Read_Velocity[8];
-uint8_t Read_Position[8];
-
-/* WHAT ARE ALL THE USARTS AND TIMERS USED FOR AND WHICH PINS DO THEY USE?
- *
- * USART1 = COMMS between the PC and STM	---		PB6 (TX)	 PB7 (RX)
- * USART2 = COMMS to Motor Controller 1		---		PA2 (TX)	 PA3 (RX)
- * USART3 = COMMS to Motor Controller 2		---		PC10 (TX)    PC11 (RX)
- * USART6 = COMMS to iNEMO					---		PC6 (TX)	 PC7 (RX)
- *
- * TIM1 = Timer for Center Boom Encoder		---		PE9 (A)	     PE11 (B)
- * TIM2 = Timer for Pitch Encoder			---		PA15 (A)	 PB3 (B)
- * TIM3 = Used for 5ms interrupts
- * TIM4 = Timer for Linear Encoder			---		PD12 (A)     PD13 (B)
- */
+uint8_t Read_Current[7];
+uint8_t Read_Velocity[7];
+uint8_t Read_Position[7];
 
 /* USER CODE END PV */
 
@@ -151,30 +137,9 @@ void StartCombineM2(void const * argument);
 osPoolDef(mpool, 16, T_MEAS);                    // Define memory pool
 osPoolId mpool;
 
-//Select Call-backs functions called after Transfer complete and Transfer error
-//hdma_usart1_rx;
-static void dmaComplete_DMA1_Stream1(DMA_HandleTypeDef *hdma);
-//hdma_usart1_tx;
-static void dmaComplete_DMA1_Stream3(DMA_HandleTypeDef *hdma);
-//hdma_usart2_rx;
-static void dmaComplete_DMA1_Stream5(DMA_HandleTypeDef *hdma);
-//hdma_usart2_tx;
-static void dmaComplete_DMA1_Stream6(DMA_HandleTypeDef *hdma);
-//hdma_usart3_rx;
-static void dmaComplete_DMA2_Stream1(DMA_HandleTypeDef *hdma);
-//hdma_usart3_tx;
-static void dmaComplete_DMA2_Stream2(DMA_HandleTypeDef *hdma);
-//hdma_usart6_rx;
-static void dmaComplete_DMA2_Stream6(DMA_HandleTypeDef *hdma);
-//hdma_usart6_tx;
-static void dmaComplete_DMA2_Stream7(DMA_HandleTypeDef *hdma);
-
-
 void Motor_Init(void); //Initialises motors
 void Motor_Kill(void);
 void Motor_Commands(void); //Holds all commands
-
-void dmaError(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -362,7 +327,7 @@ static void MX_USART1_UART_Init(void)
 {
 
         huart1.Instance = USART1;
-        huart1.Init.BaudRate = 9600;
+        huart1.Init.BaudRate = 115200;
         huart1.Init.WordLength = UART_WORDLENGTH_8B;
         huart1.Init.StopBits = UART_STOPBITS_1;
         huart1.Init.Parity = UART_PARITY_NONE;
@@ -484,128 +449,66 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void DMA_Start(void){
-        //DMA_HandleTypeDef hdma_usart1_rx;
-        //DMA_HandleTypeDef hdma_usart1_tx;
-        //DMA_HandleTypeDef hdma_usart2_rx;
-        //DMA_HandleTypeDef hdma_usart2_tx;
-        //DMA_HandleTypeDef hdma_usart3_rx;
-        //DMA_HandleTypeDef hdma_usart3_tx;
-        //DMA_HandleTypeDef hdma_usart6_rx;
-        //DMA_HandleTypeDef hdma_usart6_tx;
-
-        //hdma_usart1_rx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA1_Stream1_IRQn.XferCpltCallback  = dmaComplete_DMA1_Stream1;
-        DMA1_Stream1_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart1_tx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA1_Stream3_IRQn.XferCpltCallback  = dmaComplete_DMA1_Stream3;
-        DMA1_Stream3_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart2_rx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA1_Stream5_IRQn.XferCpltCallback  = dmaComplete_DMA1_Stream5;
-        DMA1_Stream5_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart2_tx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA1_Stream6_IRQn.XferCpltCallback  = dmaComplete_DMA1_Stream6;
-        DMA1_Stream6_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart3_rx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA2_Stream1_IRQn.XferCpltCallback  = dmaComplete_DMA2_Stream1;
-        DMA2_Stream1_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart3_tx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA2_Stream2_IRQn.XferCpltCallback  = dmaComplete_DMA2_Stream2;
-        DMA2_Stream2_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart6_rx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA2_Stream6_IRQn.XferCpltCallback  = dmaComplete_DMA2_Stream6;
-        DMA2_Stream6_IRQn.XferErrorCallback = dmaError;
-
-        //hdma_usart6_tx;
-        //Select Call-backs functions called after Transfer complete and Transfer error
-        DMA2_Stream7_IRQn.XferCpltCallback  = dmaComplete_DMA2_Stream7;
-        DMA2_Stream7_IRQn.XferErrorCallback = dmaError;
-}
-
-// uint8_t Write_Access[11];
-// uint8_t Enable_Bridge[11];
-// uint8_t Disable_Bridge[20];
-//
-// uint8_t Current_Command[13];
-// uint8_t Position_Command[13];
-//
-// uint8_t Read_Current[7];
-// uint8_t Read_Velocity[7];
-// uint8_t Read_Position[7];
-
 void Motor_Init(void){
         //Gain write access and check granted
-        HAL_UART_Transmit(&huart1,(uint8_t *)test, strlen(test),500);
-        osDelay(100);
-        // if(TM_USART_FindString(USART2, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART2);
-        //         MW[0] = 1;
-        // }
-        // else{
-        //         MW[0] = 0;
-        // }
+        TM_USART_DMA_Send(USART2, (uint8_t *)Write_Access, strlen(Write_Access));
+        Delayms(100);
+        if(TM_USART_FindString(USART2, Motor_Success)) {
+                TM_USART_ClearBuffer(USART2);
+                MW[0] = 1;
+        }
+        else{
+                MW[0] = 0;
+        }
 
-        HAL_UART_Transmit_DMA(&huart1,(uint8_t *)test, strlen(test));
-        osDelay(100);
-        // if(TM_USART_FindString(USART3, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART3);
-        //         MW[1] = 1;
-        // }
-        // else{
-        //         MW[1] = 0;
-        // }
+        TM_USART_DMA_Send(USART3, (uint8_t *)Write_Access, strlen(Write_Access));
+        Delayms(100);
+        if(TM_USART_FindString(USART3, Motor_Success)) {
+                TM_USART_ClearBuffer(USART3);
+                MW[1] = 1;
+        }
+        else{
+                MW[1] = 0;
+        }
 
         //Enable bridge and check granted
-        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)test, strlen(test));
-        osDelay(100);
-        // if(TM_USART_FindString(USART2, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART2);
-        //         MB[0] = 1;
-        // }
-        // else{
-        //         MB[0] = 0;
-        // }
+        TM_USART_DMA_Send(USART2, (uint8_t *)Enable_Bridge, strlen(Enable_Bridge));
+        Delayms(100);
+        if(TM_USART_FindString(USART2, Motor_Success)) {
+                TM_USART_ClearBuffer(USART2);
+                MB[0] = 1;
+        }
+        else{
+                MB[0] = 0;
+        }
 
-        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)test, strlen(test));
-        osDelay(100);
-        // if(TM_USART_FindString(USART3, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART3);
-        //         MB[1] = 1;
-        // }
-        // else{
-        //         MB[1] = 0;
-        // }
+        TM_USART_DMA_Send(USART3, (uint8_t *)Enable_Bridge, strlen(Enable_Bridge));
+        Delayms(100);
+        if(TM_USART_FindString(USART3, Motor_Success)) {
+                TM_USART_ClearBuffer(USART3);
+                MB[1] = 1;
+        }
+        else{
+                MB[1] = 0;
+        }
 }
 
 void Motor_Kill(void){
 
         //Disable bridge and check granted
-        HAL_UART_Transmit_DMA(&huart1, Disable_Bridge, 20);
-        osDelay(20);
-        // if(TM_USART_FindString(USART2, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART2);
-        //         MB[0] = 0;
-        // }
+        TM_USART_DMA_Send(USART2, (uint8_t *)Disable_Bridge, strlen(Disable_Bridge));
+        Delayms(20);
+        if(TM_USART_FindString(USART2, Motor_Success)) {
+                TM_USART_ClearBuffer(USART2);
+                MB[0] = 0;
+        }
 
-        HAL_UART_Transmit_DMA(&huart1, Disable_Bridge, 20);
-        osDelay(20);
-        // if(TM_USART_FindString(USART3, Motor_Success)) {
-        //         TM_USART_ClearBuffer(USART3);
-        //         MB[1] = 0;
-        // }
+        TM_USART_DMA_Send(USART3, (uint8_t *)Disable_Bridge, strlen(Disable_Bridge));
+        Delayms(20);
+        if(TM_USART_FindString(USART3, Motor_Success)) {
+                TM_USART_ClearBuffer(USART3);
+                MB[1] = 0;
+        }
 }
 
 void Motor_Commands(void){
@@ -690,10 +593,6 @@ void Motor_Commands(void){
         Read_Position[6] = 0xB0;
         Read_Position[7] = 0xCB;
 }
-
-void dmaError(void){
-        printf("DMA Error!");
-}
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
@@ -702,20 +601,9 @@ void StartDefaultTask(void const * argument)
 
         /* USER CODE BEGIN 5 */
         /* Infinite loop */
-//        osDelay(5000);
-//        Motor_Init();
-//        osDelay(10000);
-//        Motor_Kill();
-        char str[32];
-        uint8_t tt = 0xAA;
-        sprintf(str, "%d", tt);
-        HAL_UART_Transmit(&huart1,(uint8_t *)str, 100,500);
-        osDelay(100);
-        HAL_UART_Transmit_DMA(&huart1,(uint8_t *)test, strlen(test));
         for(;; )
         {
-
-                osDelay(500); //TODO Remove
+                osDelay(Ts); //TODO Remove
         }
         /* USER CODE END 5 */
 }
@@ -727,7 +615,7 @@ void StartTXPC(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-                //HAL_UART_Transmit_DMA(&huart1,(uint8_t *)TXBuf, strlen(TXBuf)); //TODO ...
+                TM_USART_DMA_Send(USART1, (uint8_t *)TXBuf, strlen(TXBuf));
                 osDelay(Ts);
         }
         /* USER CODE END StartTXPC */
@@ -891,13 +779,13 @@ void StartCombineM2(void const * argument)
         osEvent evt;
         for(;; )
         {
-                evt = osMessageGet(RXBoxM2Handle, osWaitForever); // wait for message
+                evt = osMessageGet(RXBoxM1Handle, osWaitForever); // wait for message
                 if (evt.status == osEventMessage) {
                         rptr = evt.value.p;
 
                         TXBuf[2] = rptr->current[1];
-                        TXBuf[4] = rptr->velocity[1];
-                        TXBuf[6] = rptr->position[1];
+                        TXBuf[4] = rptr->velocity[2];
+                        TXBuf[6] = rptr->position[3];
 
                         osPoolFree(mpool, rptr); // free memory allocated for message
                 }
