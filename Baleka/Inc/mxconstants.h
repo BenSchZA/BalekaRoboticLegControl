@@ -53,10 +53,10 @@
 #define iNemo_TX_GPIO_Port GPIOC
 #define iNemo_RX_Pin GPIO_PIN_7
 #define iNemo_RX_GPIO_Port GPIOC
-#define PC_TX_Pin GPIO_PIN_9
-#define PC_TX_GPIO_Port GPIOA
-#define PC_RX_Pin GPIO_PIN_10
-#define PC_RX_GPIO_Port GPIOA
+#define PC_TX_Pin GPIO_PIN_6
+#define PC_TX_GPIO_Port GPIOB
+#define PC_RX_Pin GPIO_PIN_7
+#define PC_RX_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

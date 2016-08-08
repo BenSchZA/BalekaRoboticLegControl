@@ -76,5 +76,37 @@
 			<type />
 			<location />
 		</link>
-	</linkedResources>
+	<link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			
+			<type>2</type>
+			
+		</link><link>
+			<name>Drivers/CMSIS/system_stm32f4xx.c</name>
+			<type>1</type>
+			<location>/home/bscholtz/STM32Cube/Repository/STM32Cube_FW_F4_V1.13.0/Drivers/CMSIS//Device/ST/STM32F4xx/Source/Templates/system_stm32f4xx.c</location>
+		</link></linkedResources>
 </projectDescription>
