@@ -54,7 +54,6 @@ DMA_HandleTypeDef hdma_usart2_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 DMA_HandleTypeDef hdma_usart6_rx;
-DMA_HandleTypeDef hdma_usart6_tx;
 
 osThreadId defaultTaskHandle;
 osThreadId TXPCHandle;
@@ -102,6 +101,8 @@ uint8_t RXBuf[10];
 //Motor Buffer
 uint8_t TXBufM1[14];
 uint8_t TXBufM2[14];
+uint8_t TXM1Complete=0;
+uint8_t TXM2Complete=0;
 
 uint8_t RXBufM1[14];
 uint8_t RXBufM2[14];
@@ -175,8 +176,6 @@ static void hdma_usart3_rx_cmplt(DMA_HandleTypeDef *hdma);
 static void hdma_usart3_tx_cmplt(DMA_HandleTypeDef *hdma);
 //hdma_usart6_rx;
 static void hdma_usart6_rx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart6_tx;
-static void hdma_usart6_tx_cmplt(DMA_HandleTypeDef *hdma);
 
 static void DMA_Start(void);
 
@@ -219,9 +218,8 @@ int main(void)
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-  Motor_Commands();
-  	  	Motor_Init();
-  	  	osDelay(100);
+        Motor_Commands();
+        //Motor_Init();
         DMA_Start();
   /* USER CODE END 2 */
 
@@ -398,7 +396,7 @@ static void MX_USART2_UART_Init(void)
 {
 
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 921600;
+  huart2.Init.BaudRate = 9600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -417,7 +415,7 @@ static void MX_USART3_UART_Init(void)
 {
 
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 921600;
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -456,8 +454,8 @@ static void MX_USART6_UART_Init(void)
 static void MX_DMA_Init(void) 
 {
   /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
   __HAL_RCC_DMA2_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
@@ -478,9 +476,6 @@ static void MX_DMA_Init(void)
   /* DMA2_Stream2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-  /* DMA2_Stream6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream6_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream6_IRQn);
   /* DMA2_Stream7_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
@@ -506,21 +501,33 @@ static void DMA_Start(void){
         //HAL_UART_Transmit_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size);
         //HAL_UART_Transmit_DMA(&huart1, TXBuf, (uint16_t)(sizeof(TXBuf)/sizeof(TXBuf[0])));
         //HAL_UART_Receive_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size);
+        //static void DMA_SetConfig(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)
+        //HAL_StatusTypeDef HAL_DMA_Start(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)
 
-        //DMA_HandleTypeDef hdma_usart1_rx;
-        if(HAL_UART_Receive_DMA(&huart1, RXBuf, 10) != HAL_OK) {Error_Handler(); }
-        //DMA_HandleTypeDef hdma_usart1_tx;
-        if(HAL_UART_Transmit_DMA(&huart1, TXBuf, 10) != HAL_OK) {Error_Handler(); }
-        //DMA_HandleTypeDef hdma_usart2_rx;
-        //DMA_HandleTypeDef hdma_usart2_tx;
-        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
-        //DMA_HandleTypeDef hdma_usart3_rx;
-        //DMA_HandleTypeDef hdma_usart3_tx;
-        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
-        //DMA_HandleTypeDef hdma_usart6_rx;
-        //DMA_HandleTypeDef hdma_usart6_tx;
+        // //DMA_HandleTypeDef hdma_usart1_rx;
+        // if(HAL_UART_Receive_DMA(&huart1, RXBuf, 10) != HAL_OK) {Error_Handler(); }
+        // //DMA_HandleTypeDef hdma_usart1_tx;
+        // if(HAL_UART_Transmit_DMA(&huart1, TXBuf, 10) != HAL_OK) {Error_Handler(); }
+        // //DMA_HandleTypeDef hdma_usart2_rx;
+        // //DMA_HandleTypeDef hdma_usart2_tx;
+        // if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
+        // //DMA_HandleTypeDef hdma_usart3_rx;
+        // //DMA_HandleTypeDef hdma_usart3_tx;
+        // if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
+        // //DMA_HandleTypeDef hdma_usart6_rx;
+        // //DMA_HandleTypeDef hdma_usart6_tx;
 
         //End of DMA transfer callbacks
+        //HAL_DMA_RegisterCallback(DMA_HandleTypeDef *hdma, HAL_DMA_CallbackIDTypeDef CallbackID, void (* pCallback)(DMA_HandleTypeDef *_hdma));
+
+//        HAL_DMA_RegisterCallback(&hdma_usart1_rx, HAL_UART_TxCpltCallback, hdma_usart1_rx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart1_tx, HAL_UART_TxCpltCallback, hdma_usart1_tx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart2_rx, HAL_UART_TxCpltCallback, hdma_usart2_rx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart2_tx, HAL_UART_TxCpltCallback, hdma_usart2_tx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart3_rx, HAL_UART_TxCpltCallback, hdma_usart3_rx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart3_tx, HAL_UART_TxCpltCallback, hdma_usart3_tx_cmplt);
+//        HAL_DMA_RegisterCallback(&hdma_usart6_rx, HAL_UART_TxCpltCallback, hdma_usart6_rx_cmplt);
+
         hdma_usart1_rx.XferCpltCallback = hdma_usart1_rx_cmplt;
         hdma_usart1_tx.XferCpltCallback = hdma_usart1_tx_cmplt;
         hdma_usart2_rx.XferCpltCallback = hdma_usart2_rx_cmplt;
@@ -528,7 +535,6 @@ static void DMA_Start(void){
         hdma_usart3_rx.XferCpltCallback = hdma_usart3_rx_cmplt;
         hdma_usart3_tx.XferCpltCallback = hdma_usart3_tx_cmplt;
         hdma_usart6_rx.XferCpltCallback = hdma_usart6_rx_cmplt;
-        hdma_usart6_tx.XferCpltCallback = hdma_usart6_tx_cmplt;
 
 }
 
@@ -550,25 +556,70 @@ void Motor_Init(void){
         //while(HAL_DMA_GetState(&hdma_usart2_tx) == HAL_DMA_STATE_BUSY);
 
         //Gain write access and enable bridge
-        HAL_UART_DMAStop(&huart2);
-        HAL_UART_DMAStop(&huart3);
+        //if(HAL_UART_DMAPause(&huart2) != HAL_OK){Error_Handler();}
+        //if(HAL_UART_DMAPause(&huart3) != HAL_OK){Error_Handler();}
+
+        //MX_USART2_UART_Init();
+        //MX_USART3_UART_Init();
+
+        //__HAL_UART_ENABLE(&huart2);
+        //__HAL_UART_ENABLE(&huart3);
+
+        //HAL_UART_Init(&huart2);
+        //HAL_UART_Init(&huart3);
+
+        //TODO Try osDelay()...?
 
         SetBuf(TXBufM1, Write_Access, 12);
-        HAL_UART_Transmit(&huart2, TXBufM1, 14, 100);
+        //HAL_DMA_Start(&hdma_usart2_tx, (uint32_t)&TXBufM1, (uint32_t)huart2.Instance->DR, (uint32_t)14);
+        //TXM1Complete = 0;
+        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
+        while(huart2.gState != HAL_UART_STATE_READY);
+        //osDelay(1000);
+        //while(HAL_DMA_GetState(&hdma_usart2_tx) != HAL_DMA_STATE_READY);
+        //while(TXM1Complete!=1);
+        //while(huart2->gState != HAL_UART_STATE_READY){};
+        //while(HAL_UART_GetState(&huart2) != HAL_UART_STATE_READY);
+        //while(__HAL_DMA_GET_IT_SOURCE(&hdma_usart2_tx, DMA_IT_TC) != RESET);
+        //HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
 
         SetBuf(TXBufM2, Write_Access, 12);
-        HAL_UART_Transmit(&huart3, TXBufM2, 14, 100);
+        //TXM2Complete = 0;
+        //HAL_DMA_Start(&hdma_usart3_tx, (uint32_t)&TXBufM2, (uint32_t)huart3.Instance->DR, (uint32_t)14);
+        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
+        while(huart3.gState != HAL_UART_STATE_READY);
+        //osDelay(1000);
+        //while(HAL_DMA_GetState(&hdma_usart3_tx) != HAL_DMA_STATE_READY);
+        //while(TXM2Complete!=1);
+        //while(HAL_UART_GetState(&huart3) != HAL_UART_STATE_READY);
+        //while(__HAL_DMA_GET_IT_SOURCE(&hdma_usart3_tx, DMA_IT_TC) != RESET);
+        //HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
 
         SetBuf(TXBufM1, Enable_Bridge, 12);
-        HAL_UART_Transmit(&huart2, TXBufM1, 14, 100);
+        //TXM1Complete = 0;
+        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
+        while(huart2.gState != HAL_UART_STATE_READY);
+        //osDelay(1000);
+        //while(HAL_DMA_GetState(&hdma_usart2_tx) != HAL_DMA_STATE_READY);
+        //while(TXM1Complete!=1);
+        //HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
 
         SetBuf(TXBufM2, Enable_Bridge, 12);
-        HAL_UART_Transmit(&huart3, TXBufM2, 14, 100);
+        //TXM2Complete = 0;
+        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
+        while(huart3.gState != HAL_UART_STATE_READY);
+        //osDelay(1000);
+        //while(HAL_DMA_GetState(&hdma_usart3_tx) != HAL_DMA_STATE_READY);
+        //while(TXM2Complete!=1);
+        //HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
 
         SetBuf(TXBufM1, Current_Command, 12);
         SetBuf(TXBufM2, Current_Command, 12);
-        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
-        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
+        //HAL_UART_DMAResume(&huart2);
+        //HAL_UART_DMAResume(&huart3);
+
+        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
+        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
 }
 
 void Motor_Kill(void){
@@ -689,6 +740,9 @@ void SetBuf(uint8_t buf[], uint8_t set[], uint8_t size){
         }
 }
 
+//void ClearBit; //TODO
+//void SetBit; //TODO
+
 void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t val2, uint8_t pos3, uint8_t val3, uint8_t pos4, uint8_t val4){
         if (pos1 != NULL) {buf[pos1] = buf[val1]; }
         if (pos2 != NULL) {buf[pos2] = buf[val2]; }
@@ -711,7 +765,12 @@ static void hdma_usart2_rx_cmplt(DMA_HandleTypeDef *hdma){
 }
 //hdma_usart2_tx;
 static void hdma_usart2_tx_cmplt(DMA_HandleTypeDef *hdma){
-        //ClearBuf(TXBufM1, 14);
+//         HAL_UART_DMAPause(&huart2);
+//         if(TXCountM1 == 0) {SetBuf(TXBufM1, Write_Access, 12); osDelay(1000);}
+//         if(TXCountM1 == 1) {SetBuf(TXBufM1, Enable_Bridge, 12); osDelay(1000);}
+//         if(TXCountM1 > 1) {SetBuf(TXBufM1, Current_Command, 14); }
+//         TXCountM1++;
+//         HAL_UART_DMAResume(&huart2);
         __NOP();
 }
 //hdma_usart3_rx;
@@ -720,15 +779,16 @@ static void hdma_usart3_rx_cmplt(DMA_HandleTypeDef *hdma){
 }
 //hdma_usart3_tx;
 static void hdma_usart3_tx_cmplt(DMA_HandleTypeDef *hdma){
-        //ClearBuf(TXBufM2, 14);
+//         HAL_UART_DMAPause(&huart3);
+//         if(TXCountM2 == 0) {SetBuf(TXBufM2, Write_Access, 12); osDelay(1000);}
+//         if(TXCountM2 == 1) {SetBuf(TXBufM2, Enable_Bridge, 12); osDelay(1000);}
+//         if(TXCountM2 > 1) {SetBuf(TXBufM2, Current_Command, 14); }
+//         TXCountM2++;
+//         HAL_UART_DMAResume(&huart3);
         __NOP();
 }
 //hdma_usart6_rx;
 static void hdma_usart6_rx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
-}
-//hdma_usart6_tx;
-static void hdma_usart6_tx_cmplt(DMA_HandleTypeDef *hdma){
         __NOP();
 }
 
@@ -736,6 +796,10 @@ static void dmaError(DMA_HandleTypeDef *hdma){
         printf("DMA Error!");
 }
 
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+  TXM1Complete=1;
+  TXM2Complete=1;
+}
 
 // static void UART_DMATransmitCplt(DMA_HandleTypeDef *hdma)
 // {
@@ -782,12 +846,14 @@ void StartDefaultTask(void const * argument)
 void StartTXPC(void const * argument)
 {
   /* USER CODE BEGIN StartTXPC */
-        osDelay(5000);
+        //osDelay(1000);
+        Motor_Init();
+        osDelay(1000);
         SetCurrent(TXBufM1);
         osDelay(500);
         SetCurrent(TXBufM2);
         osDelay(1000);
-        Motor_Kill();
+        //Motor_Kill();
         /* Infinite loop */
         for(;; )
         {
