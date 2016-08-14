@@ -89,25 +89,25 @@
 			<type>2</type>
 			<locationURI>virtual:/virtual</locationURI>
 		</link><link>
-			<name>Application</name>
+			
 			<type>2</type>
-			<locationURI>virtual:/virtual</locationURI>
+			
 		</link><link>
 			<name>Application/TrueSTUDIO</name>
 			<type>2</type>
 			<locationURI>virtual:/virtual</locationURI>
 		</link><link>
-			<name>Middlewares</name>
+			
 			<type>2</type>
-			<locationURI>virtual:/virtual</locationURI>
+			
 		</link><link>
 			<name>Drivers/STM32F4xx_HAL_Driver</name>
 			<type>2</type>
 			<locationURI>virtual:/virtual</locationURI>
 		</link><link>
-			<name>Drivers</name>
+			
 			<type>2</type>
-			<locationURI>virtual:/virtual</locationURI>
+			
 		</link><link>
 			<name>Middlewares/FreeRTOS/tasks.c</name>
 			<type>1</type>
@@ -232,5 +232,17 @@
 			<name>Drivers/STM32F4xx_HAL_Driver/stm32f4xx_hal_pwr_ex.c</name>
 			<type>1</type>
 			<location>PARENT-3-PROJECT_LOC/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c</location>
+		</link><link>
+			<name>Application</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link><link>
+			<name>Middlewares</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link><link>
+			<name>Drivers</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
 		</link></linkedResources>
 </projectDescription>

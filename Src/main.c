@@ -1,42 +1,42 @@
 /**
-  ******************************************************************************
-  * File Name          : main.c
-  * Description        : Main program body
-  ******************************************************************************
-  *
-  * COPYRIGHT(c) 2016 STMicroelectronics
-  *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
-  *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
-  *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * File Name          : main.c
+ * Description        : Main program body
+ ******************************************************************************
+ *
+ * COPYRIGHT(c) 2016 STMicroelectronics
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *   1. Redistributions of source code must retain the above copyright notice,
+ *      this list of conditions and the following disclaimer.
+ *   2. Redistributions in binary form must reproduce the above copyright notice,
+ *      this list of conditions and the following disclaimer in the documentation
+ *      and/or other materials provided with the distribution.
+ *   3. Neither the name of STMicroelectronics nor the names of its contributors
+ *      may be used to endorse or promote products derived from this software
+ *      without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ ******************************************************************************
+ */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 #include "cmsis_os.h"
 
 /* USER CODE BEGIN Includes */
 
-//#include "CRC.h"
+#include "CRC.h"
 //#include "serial_terminal.h"
 #include <string.h>
 
@@ -162,26 +162,52 @@ void StartCombineM2(void const * argument);
 osPoolDef(mpool, 16, T_MEAS);                    // Define memory pool
 osPoolId mpool;
 
-//Select Call-backs functions called after Transfer complete and Transfer error
-//hdma_usart1_rx;
-void hdma_usart1_rx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart1_tx;
-void hdma_usart1_tx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart2_rx;
-void hdma_usart2_rx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart2_tx;
-void hdma_usart2_tx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart3_rx;
-void hdma_usart3_rx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart3_tx;
-void hdma_usart3_tx_cmplt(DMA_HandleTypeDef *hdma);
-//hdma_usart6_rx;
-void hdma_usart6_rx_cmplt(DMA_HandleTypeDef *hdma);
-
+//Select Call-backs functions called after Transfer complete
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 
 static void DMA_Start(void);
 
+//FreeRTOS Notify
+static TaskHandle_t xTaskToNotify_M1 = NULL;
+static TaskHandle_t xTaskToNotify_M2 = NULL;
+
+//http://www.freertos.org/xEventGroupCreate.html
+/* Declare a variable to hold the created event group. */
+EventGroupHandle_t xMotorM1EventGroup;
+
+#define BIT_TXM1Start ( 1 << 0 )
+#define BIT_TXM1Complete ( 1 << 1 )
+#define BIT_RXM1Start ( 1 << 2 )
+#define BIT_RXM1Complete ( 1 << 3 )
+#define BIT_TXM1Current ( 1 << 4 )
+#define BIT_RXM1Current( 1 << 5 )
+#define BIT_RXM1Position ( 1 << 6 )
+#define BIT_RXM1Velocity ( 1 << 7 )
+
+#define BIT_TXM1Enable ( 1<< 8 )
+#define BIT_RXM1Enable ( 1<< 9 )
+#define BIT_TXM1Write ( 1<< 10 )
+#define BIT_RXM1Write ( 1<< 11 )
+
+/* Declare a variable to hold the created event group. */
+EventGroupHandle_t xMotorM2EventGroup;
+
+#define BIT_TXM2Start ( 1 << 0 )
+#define BIT_TXM2Complete ( 1 << 1 )
+#define BIT_RXM2Start ( 1 << 2 )
+#define BIT_RXM2Complete ( 1 << 3 )
+#define BIT_TXM2Current ( 1 << 4 )
+#define BIT_RXM2Current( 1 << 5 )
+#define BIT_RXM2Position ( 1 << 6 )
+#define BIT_RXM2Velocity ( 1 << 7 )
+
+#define BIT_TXM2Enable ( 1<< 8 )
+#define BIT_RXM2Enable ( 1<< 9 )
+#define BIT_TXM2Write ( 1<< 10 )
+#define BIT_RXM2Write ( 1<< 11 )
+
+//Motor functions
 void Motor_Init(void); //Initialises motors
 void Motor_Kill(void);
 void Motor_Commands(void); //Holds all commands
@@ -189,8 +215,9 @@ void Motor_Commands(void); //Holds all commands
 void ClearBuf(uint8_t buf[], uint8_t size); //Set buffer contents to 0
 void SetBuf(uint8_t buf[], uint8_t set[], uint8_t size); //Set buf[] to set[]
 void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t val2, uint8_t pos3, uint8_t val3, uint8_t pos4, uint8_t val4); //For setting current commands, set pos to NULL to omit
+void TransmitM1_DMA(uint8_t *data, uint8_t size);
+void TransmitM2_DMA(uint8_t *data, uint8_t size);
 
-static void dmaError(DMA_HandleTypeDef *hdma);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -200,201 +227,202 @@ static void dmaError(DMA_HandleTypeDef *hdma);
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
+        /* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
+        /* USER CODE END 1 */
 
-  /* MCU Configuration----------------------------------------------------------*/
+        /* MCU Configuration----------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+        /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+        HAL_Init();
 
-  /* Configure the system clock */
-  SystemClock_Config();
+        /* Configure the system clock */
+        SystemClock_Config();
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART2_UART_Init();
-  MX_USART3_UART_Init();
-  MX_USART6_UART_Init();
-  MX_USART1_UART_Init();
+        /* Initialize all configured peripherals */
+        MX_GPIO_Init();
+        MX_DMA_Init();
+        MX_USART2_UART_Init();
+        MX_USART3_UART_Init();
+        MX_USART6_UART_Init();
+        MX_USART1_UART_Init();
 
-  /* USER CODE BEGIN 2 */
+        /* USER CODE BEGIN 2 */
+        initCRC();
         Motor_Commands();
         DMA_Start();
         Motor_Init();
-  /* USER CODE END 2 */
+        /* USER CODE END 2 */
 
-  /* USER CODE BEGIN RTOS_MUTEX */
+        /* USER CODE BEGIN RTOS_MUTEX */
         /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
+        /* USER CODE END RTOS_MUTEX */
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
+        /* USER CODE BEGIN RTOS_SEMAPHORES */
         /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
+        /* USER CODE END RTOS_SEMAPHORES */
 
-  /* USER CODE BEGIN RTOS_TIMERS */
+        /* USER CODE BEGIN RTOS_TIMERS */
         /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
+        /* USER CODE END RTOS_TIMERS */
 
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityBelowNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+        /* Create the thread(s) */
+        /* definition and creation of defaultTask */
+        osThreadDef(defaultTask, StartDefaultTask, osPriorityBelowNormal, 0, 128);
+        defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* definition and creation of TXPC */
-  osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
-  TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
+        /* definition and creation of TXPC */
+        osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
+        TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
-  /* definition and creation of RXPC */
-  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 128);
-  RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
+        /* definition and creation of RXPC */
+        osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 128);
+        RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
-  /* definition and creation of RXiNemo */
-  osThreadDef(RXiNemo, StartRXiNemo, osPriorityNormal, 0, 128);
-  RXiNemoHandle = osThreadCreate(osThread(RXiNemo), NULL);
+        /* definition and creation of RXiNemo */
+        osThreadDef(RXiNemo, StartRXiNemo, osPriorityNormal, 0, 128);
+        RXiNemoHandle = osThreadCreate(osThread(RXiNemo), NULL);
 
-  /* definition and creation of TXMotor1 */
-  osThreadDef(TXMotor1, StartTXMotor1, osPriorityHigh, 0, 128);
-  TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
+        /* definition and creation of TXMotor1 */
+        osThreadDef(TXMotor1, StartTXMotor1, osPriorityHigh, 0, 128);
+        TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
 
-  /* definition and creation of TXMotor2 */
-  osThreadDef(TXMotor2, StartTXMotor2, osPriorityHigh, 0, 128);
-  TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
+        /* definition and creation of TXMotor2 */
+        osThreadDef(TXMotor2, StartTXMotor2, osPriorityHigh, 0, 128);
+        TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
 
-  /* definition and creation of RXMotor1 */
-  osThreadDef(RXMotor1, StartRXMotor1, osPriorityAboveNormal, 0, 128);
-  RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
+        /* definition and creation of RXMotor1 */
+        osThreadDef(RXMotor1, StartRXMotor1, osPriorityAboveNormal, 0, 128);
+        RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
 
-  /* definition and creation of RXMotor2 */
-  osThreadDef(RXMotor2, StartRXMotor2, osPriorityAboveNormal, 0, 128);
-  RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
+        /* definition and creation of RXMotor2 */
+        osThreadDef(RXMotor2, StartRXMotor2, osPriorityAboveNormal, 0, 128);
+        RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
-  /* definition and creation of CombineiNemo */
-  osThreadDef(CombineiNemo, StartCombineiNemo, osPriorityRealtime, 0, 128);
-  CombineiNemoHandle = osThreadCreate(osThread(CombineiNemo), NULL);
+        /* definition and creation of CombineiNemo */
+        osThreadDef(CombineiNemo, StartCombineiNemo, osPriorityRealtime, 0, 128);
+        CombineiNemoHandle = osThreadCreate(osThread(CombineiNemo), NULL);
 
-  /* definition and creation of CombineM1 */
-  osThreadDef(CombineM1, StartCombineM1, osPriorityRealtime, 0, 128);
-  CombineM1Handle = osThreadCreate(osThread(CombineM1), NULL);
+        /* definition and creation of CombineM1 */
+        osThreadDef(CombineM1, StartCombineM1, osPriorityRealtime, 0, 128);
+        CombineM1Handle = osThreadCreate(osThread(CombineM1), NULL);
 
-  /* definition and creation of CombineM2 */
-  osThreadDef(CombineM2, StartCombineM2, osPriorityRealtime, 0, 128);
-  CombineM2Handle = osThreadCreate(osThread(CombineM2), NULL);
+        /* definition and creation of CombineM2 */
+        osThreadDef(CombineM2, StartCombineM2, osPriorityRealtime, 0, 128);
+        CombineM2Handle = osThreadCreate(osThread(CombineM2), NULL);
 
-  /* USER CODE BEGIN RTOS_THREADS */
+        /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
+        /* USER CODE END RTOS_THREADS */
 
-  /* Create the queue(s) */
-  /* definition and creation of TXBox */
-  osMessageQDef(TXBox, 6, float);
-  TXBoxHandle = osMessageCreate(osMessageQ(TXBox), NULL);
+        /* Create the queue(s) */
+        /* definition and creation of TXBox */
+        osMessageQDef(TXBox, 6, float);
+        TXBoxHandle = osMessageCreate(osMessageQ(TXBox), NULL);
 
-  /* definition and creation of TXBoxM1 */
-  osMessageQDef(TXBoxM1, 16, uint16_t);
-  TXBoxM1Handle = osMessageCreate(osMessageQ(TXBoxM1), NULL);
+        /* definition and creation of TXBoxM1 */
+        osMessageQDef(TXBoxM1, 16, uint16_t);
+        TXBoxM1Handle = osMessageCreate(osMessageQ(TXBoxM1), NULL);
 
-  /* definition and creation of TXBoxM2 */
-  osMessageQDef(TXBoxM2, 16, uint16_t);
-  TXBoxM2Handle = osMessageCreate(osMessageQ(TXBoxM2), NULL);
+        /* definition and creation of TXBoxM2 */
+        osMessageQDef(TXBoxM2, 16, uint16_t);
+        TXBoxM2Handle = osMessageCreate(osMessageQ(TXBoxM2), NULL);
 
-  /* definition and creation of RXBoxiNemo */
-  osMessageQDef(RXBoxiNemo, 16, uint16_t);
-  RXBoxiNemoHandle = osMessageCreate(osMessageQ(RXBoxiNemo), NULL);
+        /* definition and creation of RXBoxiNemo */
+        osMessageQDef(RXBoxiNemo, 16, uint16_t);
+        RXBoxiNemoHandle = osMessageCreate(osMessageQ(RXBoxiNemo), NULL);
 
-  /* definition and creation of RXBoxM1 */
-  osMessageQDef(RXBoxM1, 16, uint16_t);
-  RXBoxM1Handle = osMessageCreate(osMessageQ(RXBoxM1), NULL);
+        /* definition and creation of RXBoxM1 */
+        osMessageQDef(RXBoxM1, 16, uint16_t);
+        RXBoxM1Handle = osMessageCreate(osMessageQ(RXBoxM1), NULL);
 
-  /* definition and creation of RXBoxM2 */
-  osMessageQDef(RXBoxM2, 16, uint16_t);
-  RXBoxM2Handle = osMessageCreate(osMessageQ(RXBoxM2), NULL);
+        /* definition and creation of RXBoxM2 */
+        osMessageQDef(RXBoxM2, 16, uint16_t);
+        RXBoxM2Handle = osMessageCreate(osMessageQ(RXBoxM2), NULL);
 
-  /* definition and creation of Status */
-  osMessageQDef(Status, 16, uint8_t);
-  StatusHandle = osMessageCreate(osMessageQ(Status), NULL);
+        /* definition and creation of Status */
+        osMessageQDef(Status, 16, uint8_t);
+        StatusHandle = osMessageCreate(osMessageQ(Status), NULL);
 
-  /* USER CODE BEGIN RTOS_QUEUES */
+        /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
- 
+        /* USER CODE END RTOS_QUEUES */
 
-  /* Start scheduler */
-  osKernelStart();
-  
-  /* We should never get here as control is now taken by the scheduler */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+        /* Start scheduler */
+        osKernelStart();
+
+        /* We should never get here as control is now taken by the scheduler */
+
+        /* Infinite loop */
+        /* USER CODE BEGIN WHILE */
         while (1)
         {
-  /* USER CODE END WHILE */
+                /* USER CODE END WHILE */
 
-  /* USER CODE BEGIN 3 */
+                /* USER CODE BEGIN 3 */
 
         }
-  /* USER CODE END 3 */
+        /* USER CODE END 3 */
 
 }
 
 /** System Clock Configuration
-*/
+ */
 void SystemClock_Config(void)
 {
 
-  RCC_OscInitTypeDef RCC_OscInitStruct;
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+        RCC_OscInitTypeDef RCC_OscInitStruct;
+        RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-  __HAL_RCC_PWR_CLK_ENABLE();
+        __HAL_RCC_PWR_CLK_ENABLE();
 
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+        __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = 16;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+        RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+        RCC_OscInitStruct.HSICalibrationValue = 16;
+        RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+        if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                                      |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+        RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+        RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+        RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+        RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+        if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
-  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+        HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+        HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-  /* SysTick_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+        /* SysTick_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
 /* USART1 init function */
 static void MX_USART1_UART_Init(void)
 {
 
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 9600;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart1.Instance = USART1;
+        huart1.Init.BaudRate = 9600;
+        huart1.Init.WordLength = UART_WORDLENGTH_8B;
+        huart1.Init.StopBits = UART_STOPBITS_1;
+        huart1.Init.Parity = UART_PARITY_NONE;
+        huart1.Init.Mode = UART_MODE_TX_RX;
+        huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart1) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
@@ -402,18 +430,18 @@ static void MX_USART1_UART_Init(void)
 static void MX_USART2_UART_Init(void)
 {
 
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart2.Instance = USART2;
+        huart2.Init.BaudRate = 921600;
+        huart2.Init.WordLength = UART_WORDLENGTH_8B;
+        huart2.Init.StopBits = UART_STOPBITS_1;
+        huart2.Init.Parity = UART_PARITY_NONE;
+        huart2.Init.Mode = UART_MODE_TX_RX;
+        huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart2) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
@@ -421,18 +449,18 @@ static void MX_USART2_UART_Init(void)
 static void MX_USART3_UART_Init(void)
 {
 
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 9600;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart3.Instance = USART3;
+        huart3.Init.BaudRate = 921600;
+        huart3.Init.WordLength = UART_WORDLENGTH_8B;
+        huart3.Init.StopBits = UART_STOPBITS_1;
+        huart3.Init.Parity = UART_PARITY_NONE;
+        huart3.Init.Mode = UART_MODE_TX_RX;
+        huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart3) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
@@ -440,64 +468,81 @@ static void MX_USART3_UART_Init(void)
 static void MX_USART6_UART_Init(void)
 {
 
-  huart6.Instance = USART6;
-  huart6.Init.BaudRate = 115200;
-  huart6.Init.WordLength = UART_WORDLENGTH_8B;
-  huart6.Init.StopBits = UART_STOPBITS_1;
-  huart6.Init.Parity = UART_PARITY_NONE;
-  huart6.Init.Mode = UART_MODE_TX_RX;
-  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart6) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart6.Instance = USART6;
+        huart6.Init.BaudRate = 115200;
+        huart6.Init.WordLength = UART_WORDLENGTH_8B;
+        huart6.Init.StopBits = UART_STOPBITS_1;
+        huart6.Init.Parity = UART_PARITY_NONE;
+        huart6.Init.Mode = UART_MODE_TX_RX;
+        huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart6) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
-/** 
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void) 
+/**
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void)
 {
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
+        /* DMA controller clock enable */
+        __HAL_RCC_DMA2_CLK_ENABLE();
+        __HAL_RCC_DMA1_CLK_ENABLE();
 
-  /* DMA interrupt init */
-  /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-  /* DMA1_Stream3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-  /* DMA1_Stream5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
-  /* DMA1_Stream6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
-  /* DMA2_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-  /* DMA2_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-  /* DMA2_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
+        /* DMA interrupt init */
+        /* DMA1_Stream1_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+        /* DMA1_Stream3_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+        /* DMA1_Stream5_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+        /* DMA1_Stream6_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+        /* DMA2_Stream1_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+        /* DMA2_Stream2_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+        /* DMA2_Stream7_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
 
 }
 
-/** Pinout Configuration
-*/
+/** Configure pins as
+ * Analog
+ * Input
+ * Output
+ * EVENT_OUT
+ * EXTI
+ */
 static void MX_GPIO_Init(void)
 {
 
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
+        GPIO_InitTypeDef GPIO_InitStruct;
+
+        /* GPIO Ports Clock Enable */
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+        __HAL_RCC_GPIOC_CLK_ENABLE();
+
+        /*Configure GPIO pin Output Level */
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+
+        /*Configure GPIO pin : PB9 */
+        GPIO_InitStruct.Pin = GPIO_PIN_9;
+        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+        GPIO_InitStruct.Pull = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 
@@ -561,16 +606,15 @@ static void DMA_Start(void){
 
 void Motor_Init(void){
 
-	SetBuf(TXBufM1, Write_Access, 12);
-		SetBuf(TXBufM2, Write_Access, 12);
 
-		//HAL_DMA_Start_IT(&hdma_usart2_tx, (uint32_t)&TXBufM1, (uint32_t) &(huart2.Instance->DR), 14);
-		//HAL_DMA_Start_IT(&hdma_usart3_tx, (uint32_t)&TXBufM2, (uint32_t) &(huart3.Instance->DR), 14);
 
-            //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
-            //while(TXM1Complete!=1);
-            //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
-            //while(TXM2Complete!=1);
+        //HAL_DMA_Start_IT(&hdma_usart2_tx, (uint32_t)&TXBufM1, (uint32_t) &(huart2.Instance->DR), 14);
+        //HAL_DMA_Start_IT(&hdma_usart3_tx, (uint32_t)&TXBufM2, (uint32_t) &(huart3.Instance->DR), 14);
+
+        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
+        //while(TXM1Complete!=1);
+        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
+        //while(TXM2Complete!=1);
 
         //__HAL_DMA_DISABLE(&hdma_usart3_tx);
         //__HAL_DMA_ENABLE(&hdma_usart3_tx);
@@ -787,67 +831,89 @@ void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t v
         if (pos4 != NULL) {buf[pos4] = buf[val4]; }
 }
 
-//Select Call-backs functions called after Transfer complete and Transfer error
-//hdma_usart1_rx;
-void hdma_usart1_rx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
-}
-//hdma_usart1_tx;
-void hdma_usart1_tx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
-}
-//hdma_usart2_rx;
-void hdma_usart2_rx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
-}
-//hdma_usart2_tx;
-void hdma_usart2_tx_cmplt(DMA_HandleTypeDef *hdma){
-//         HAL_UART_DMAPause(&huart2);
-//         if(TXCountM1 == 0) {SetBuf(TXBufM1, Write_Access, 12); osDelay(1000);}
-//         if(TXCountM1 == 1) {SetBuf(TXBufM1, Enable_Bridge, 12); osDelay(1000);}
-//         if(TXCountM1 > 1) {SetBuf(TXBufM1, Current_Command, 14); }
-//         TXCountM1++;
-//         HAL_UART_DMAResume(&huart2);
-	TXM1Complete=1;
-        //__NOP();
-}
-//hdma_usart3_rx;
-void hdma_usart3_rx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
-}
-//hdma_usart3_tx;
-void hdma_usart3_tx_cmplt(DMA_HandleTypeDef *hdma){
-//         HAL_UART_DMAPause(&huart3);
-//         if(TXCountM2 == 0) {SetBuf(TXBufM2, Write_Access, 12); osDelay(1000);}
-//         if(TXCountM2 == 1) {SetBuf(TXBufM2, Enable_Bridge, 12); osDelay(1000);}
-//         if(TXCountM2 > 1) {SetBuf(TXBufM2, Current_Command, 14); }
-//         TXCountM2++;
-//         HAL_UART_DMAResume(&huart3);
-	TXM2Complete=1;
-}
-//hdma_usart6_rx;
-void hdma_usart6_rx_cmplt(DMA_HandleTypeDef *hdma){
-        __NOP();
+void TransmitM1_DMA(uint8_t *data, uint8_t size){
+        /* At this point xTaskToNotify should be NULL as no transmission is in
+           progress.  A mutex can be used to guard access to the peripheral if
+           necessary. */
+        configASSERT( xTaskToNotify_M1 == NULL );
+        /* Store the handle of the calling task. */
+        xTaskToNotify_M1 = xTaskGetCurrentTaskHandle();
+        //Set buffer
+        SetBuf(TXBufM1, data, size);
+        /* Start the transmission - an interrupt is generated when the transmission
+           is complete. */
+        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler(); }
 }
 
-static void dmaError(DMA_HandleTypeDef *hdma){
-        printf("DMA Error!");
+void TransmitM2_DMA(uint8_t *data, uint8_t size){
+        /* At this point xTaskToNotify should be NULL as no transmission is in
+           progress.  A mutex can be used to guard access to the peripheral if
+           necessary. */
+        configASSERT( xTaskToNotify_M2 == NULL );
+        /* Store the handle of the calling task. */
+        xTaskToNotify_M2 = xTaskGetCurrentTaskHandle();
+        //Set buffer
+        SetBuf(TXBufM2, data, size);
+        /* Start the transmission - an interrupt is generated when the transmission
+           is complete. */
+        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler(); }
 }
+
+//Select Call-backs functions called after Transfer complete
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
-	BaseType_t xHigherPriorityTaskWoken;
-	/* We have not woken a task at the start of the ISR. */
-	    xHigherPriorityTaskWoken = pdFALSE;
-    TXM1Complete=1;
-    xQueueSendFromISR( StatusHandle, &TXM1Complete, &xHigherPriorityTaskWoken );
-    TXM2Complete=1;
+        BaseType_t xHigherPriorityTaskWoken;
+        /* We have not woken a task at the start of the ISR. */
+        xHigherPriorityTaskWoken = pdFALSE;
 
-    //Now the buffer is empty we can switch context if necessary.
-        if( xHigherPriorityTaskWoken )
-        {
-        	/* signal end-of-irq and possible reschedule point */
-        	  portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+        if(huart->Instance==USART2) {
+                /* At this point xTaskToNotify should not be NULL as a transmission was
+                   in progress. */
+                configASSERT( xTaskToNotify_M1 != NULL );
+
+                /* Notify the task that the transmission is complete. */
+                vTaskNotifyGiveFromISR( xTaskToNotify_M1, &xHigherPriorityTaskWoken );
+
+                /* There are no transmissions in progress, so no tasks to notify. */
+                xTaskToNotify_M1 = NULL;
+
+                /* If xHigherPriorityTaskWoken is now set to pdTRUE then a context switch
+                   should be performed to ensure the interrupt returns directly to the highest
+                   priority task.  The macro used for this purpose is dependent on the port in
+                   use and may be called portEND_SWITCHING_ISR(). */
+                portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
         }
+        if(huart->Instance==USART3) {
+                /* At this point xTaskToNotify should not be NULL as a transmission was
+                   in progress. */
+                configASSERT( xTaskToNotify_M2 != NULL );
+
+                /* Notify the task that the transmission is complete. */
+                vTaskNotifyGiveFromISR( xTaskToNotify_M2, &xHigherPriorityTaskWoken );
+
+                /* There are no transmissions in progress, so no tasks to notify. */
+                xTaskToNotify_M2 = NULL;
+
+                /* If xHigherPriorityTaskWoken is now set to pdTRUE then a context switch
+                   should be performed to ensure the interrupt returns directly to the highest
+                   priority task.  The macro used for this purpose is dependent on the port in
+                   use and may be called portEND_SWITCHING_ISR(). */
+                portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+        }
+        //xQueueSendFromISR( StatusHandle, &TXM1Complete, &xHigherPriorityTaskWoken );
+
+
+        //Now the buffer is empty we can switch context if necessary.
+        // if( xHigherPriorityTaskWoken )
+        // {
+        //         /* signal end-of-irq and possible reschedule point */
+        //         portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+        // }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+
+
 }
 
 // static void UART_DMATransmitCplt(DMA_HandleTypeDef *hdma)
@@ -870,71 +936,75 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
+        /* USER CODE BEGIN 5 */
+        /* Attempt to create the event group. */
+        xMotorProtocolEventGroup = xEventGroupCreate();
 
-  /* USER CODE BEGIN 5 */
+        /* Was the event group created successfully? */
+        if( xCreatedEventGroup == NULL )
+        {
+                /* The event group was not created because there was insufficient
+                   FreeRTOS heap available. */
+        }
+        else
+        {
+                /* The event group was created. */
+        }
+
+
         /* Infinite loop */
-//        osDelay(5000);
-//        Motor_Init();
-//        osDelay(10000);
-//        Motor_Kill();
-        // char str[32];
-        // uint8_t tt = 0xAA;
-        // sprintf(str, "%d", tt);
-        // HAL_UART_Transmit(&huart1,(uint8_t *)str, 100,500);
-        // osDelay(100);
-        // HAL_UART_Transmit_DMA(&huart1,(uint8_t *)test, strlen(test));
         for(;; )
         {
 
                 osDelay(500); //TODO Remove
         }
-  /* USER CODE END 5 */ 
+        /* USER CODE END 5 */
 }
 
 /* StartTXPC function */
 void StartTXPC(void const * argument)
 {
-  /* USER CODE BEGIN StartTXPC */
+        /* USER CODE BEGIN StartTXPC */
         //osDelay(1000);
         //Motor_Init();
-		//uint8_t i;
+        //uint8_t i;
 
         //Motor_Kill();
         /* Infinite loop */
         for(;; )
         {
                 //HAL_UART_Transmit_DMA(&huart1,(uint8_t *)TXBuf, strlen(TXBuf)); //TODO ...
-//        	if(i==1){
-//        	RXBuf[0] = 0x48;
-//        	RXBuf[1] = 0x01;
-//        	RXBuf[2] = 0;
-//        	RXBuf[3] = 0;
-//        	i=0;
-//        	}
+//          if(i==1){
+//          RXBuf[0] = 0x48;
+//          RXBuf[1] = 0x01;
+//          RXBuf[2] = 0;
+//          RXBuf[3] = 0;
+//          i=0;
+//          }
 //
-//        	if(i==0){
-//        	RXBuf[0] = 0;
-//        	RXBuf[1] = 0;
-//        	RXBuf[2] = 0;
-//        	RXBuf[3] = 0;
-//        	i=1;;
-//        	}
+//          if(i==0){
+//          RXBuf[0] = 0;
+//          RXBuf[1] = 0;
+//          RXBuf[2] = 0;
+//          RXBuf[3] = 0;
+//          i=1;;
+//          }
 
-//        	SetCurrent(TXBufM1);
-//        	SetCurrent(TXBufM2);
+//          SetCurrent(TXBufM1);
+//          SetCurrent(TXBufM2);
 
-        	uint8_t TXM1Complete = 0;
-        	                if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
-        	                while(TXM1Complete!=1){xQueueReceive(StatusHandle, &TXM1Complete, 5);};
-        	                osDelay(5); //TODO Remove
+                // uint8_t TXM1Complete = 0;
+                // if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler(); }
+                // while(TXM1Complete!=1) {xQueueReceive(StatusHandle, &TXM1Complete, 5); };
+                osDelay(5);           //TODO Remove
         }
-  /* USER CODE END StartTXPC */
+        /* USER CODE END StartTXPC */
 }
 
 /* StartRXPC function */
 void StartRXPC(void const * argument)
 {
-  /* USER CODE BEGIN StartRXPC */
+        /* USER CODE BEGIN StartRXPC */
         /* Infinite loop */
         for(;; )
         {
@@ -945,13 +1015,13 @@ void StartRXPC(void const * argument)
                 // // We are done here, exit this thread
                 osDelay(Ts);
         }
-  /* USER CODE END StartRXPC */
+        /* USER CODE END StartRXPC */
 }
 
 /* StartRXiNemo function */
 void StartRXiNemo(void const * argument)
 {
-  /* USER CODE BEGIN StartRXiNemo */
+        /* USER CODE BEGIN StartRXiNemo */
         /* Infinite loop */
         for(;; )
         {
@@ -968,75 +1038,318 @@ void StartRXiNemo(void const * argument)
                    // We are done here, exit this thread*/
                 osDelay(Ts);
         }
-  /* USER CODE END StartRXiNemo */
+        /* USER CODE END StartRXiNemo */
 }
 
 /* StartTXMotor1 function */
 void StartTXMotor1(void const * argument)
 {
-  /* USER CODE BEGIN StartTXMotor1 */
+        /* USER CODE BEGIN StartTXMotor1 */
+
+        //http://www.freertos.org/vTaskNotifyGiveFromISR.html
+        const TickType_t xMaxBlockTime_Init = pdMS_TO_TICKS( 500 );
+        const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 10 );
+        uint32_t ulNotificationValue;
+
+        //Initialize Motor
+        TransmitM1_DMA(Write_Access, 12);
+        /* Wait for the transmission to complete. */
+        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
+
+        if( ulNotificationValue == 1 )
+        {
+                /* The transmission ended as expected. */
+                TransmitM1_DMA(Enable_Bridge, 12);
+                /* Wait for the transmission to complete. */
+                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
+
+                if( ulNotificationValue == 1 ) {
+                        /* The transmission ended as expected. */
+                }
+
+                else
+                {
+                        /* The call to ulTaskNotifyTake() timed out. */
+                }
+
+        }
+
+        else
+        {
+                /* The call to ulTaskNotifyTake() timed out. */
+        }
+
         /* Infinite loop */
         for(;; )
         {
+                TransmitM1_DMA(Current_Command, 14);
+                /* Wait for the transmission to complete. */
+                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                if( ulNotificationValue == 1 )
+                {
+                        /* The transmission ended as expected. */
+                        TransmitM1_DMA(Read_Current, 8);
+                        /* Wait for the transmission to complete. */
+                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                        if( ulNotificationValue == 1 )
+                        {
+                                /* The transmission ended as expected. */
+                                TransmitM1_DMA(Read_Position, 8);
+                                /* Wait for the transmission to complete. */
+                                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                                if( ulNotificationValue == 1 )
+                                {
+                                        /* The transmission ended as expected. */
+                                        TransmitM1_DMA(Read_Velocity, 8);
+                                        /* Wait for the transmission to complete. */
+                                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                                        if( ulNotificationValue == 1 ) {
+                                                /* The transmission ended as expected. */
+                                                //HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+                                        }
+
+                                        else
+                                        {
+                                                /* The call to ulTaskNotifyTake() timed out. */
+                                        }
+
+                                }
+
+                                else
+                                {
+                                        /* The call to ulTaskNotifyTake() timed out. */
+                                }
+
+                        }
+
+                        else
+                        {
+                                /* The call to ulTaskNotifyTake() timed out. */
+                        }
+                }
+
+                else
+                {
+                        /* The call to ulTaskNotifyTake() timed out. */
+                }
+
                 osDelay(Ts);
         }
-  /* USER CODE END StartTXMotor1 */
+        /* USER CODE END StartTXMotor1 */
 }
 
 /* StartTXMotor2 function */
 void StartTXMotor2(void const * argument)
 {
-  /* USER CODE BEGIN StartTXMotor2 */
+        /* USER CODE BEGIN StartTXMotor2 */
+        //http://www.freertos.org/vTaskNotifyGiveFromISR.html
+        const TickType_t xMaxBlockTime_Init = pdMS_TO_TICKS( 500 );
+        const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 10 );
+        uint32_t ulNotificationValue;
+
+        //Initialize Motor
+        TransmitM1_DMA(Write_Access, 12);
+        /* Wait for the transmission to complete. */
+        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
+
+        if( ulNotificationValue == 1 )
+        {
+                /* The transmission ended as expected. */
+                TransmitM1_DMA(Enable_Bridge, 12);
+                /* Wait for the transmission to complete. */
+                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
+
+                if( ulNotificationValue == 1 ) {
+                        /* The transmission ended as expected. */
+                }
+
+                else
+                {
+                        /* The call to ulTaskNotifyTake() timed out. */
+                }
+
+        }
+
+        else
+        {
+                /* The call to ulTaskNotifyTake() timed out. */
+        }
+
         /* Infinite loop */
         for(;; )
         {
+                TransmitM2_DMA(Current_Command, 14);
+                /* Wait for the transmission to complete. */
+                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                if( ulNotificationValue == 1 )
+                {
+                        /* The transmission ended as expected. */
+                        TransmitM2_DMA(Read_Current, 12);
+                        /* Wait for the transmission to complete. */
+                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                        if( ulNotificationValue == 1 )
+                        {
+                                /* The transmission ended as expected. */
+                                TransmitM2_DMA(Read_Position, 12);
+                                /* Wait for the transmission to complete. */
+                                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                                if( ulNotificationValue == 1 )
+                                {
+                                        /* The transmission ended as expected. */
+                                        TransmitM2_DMA(Read_Velocity, 12);
+                                        /* Wait for the transmission to complete. */
+                                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+
+                                        if( ulNotificationValue == 1 ) {
+                                                /* The transmission ended as expected. */
+                                        }
+
+                                        else
+                                        {
+                                                /* The call to ulTaskNotifyTake() timed out. */
+                                        }
+
+                                }
+
+                                else
+                                {
+                                        /* The call to ulTaskNotifyTake() timed out. */
+                                }
+
+                        }
+
+                        else
+                        {
+                                /* The call to ulTaskNotifyTake() timed out. */
+                        }
+                }
+
+                else
+                {
+                        /* The call to ulTaskNotifyTake() timed out. */
+                }
+
                 osDelay(Ts);
         }
-  /* USER CODE END StartTXMotor2 */
+        /* USER CODE END StartTXMotor2 */
 }
+
+/* Declare a variable to hold the created event group. */
+// EventGroupHandle_t xMotorM1EventGroup;
+//
+// #define BIT_TXM1Start ( 1 << 0 )
+// #define BIT_TXM1Complete ( 1 << 1 )
+// #define BIT_RXM1Start ( 1 << 2 )
+// #define BIT_RXM1Complete ( 1 << 3 )
+// #define BIT_TXM1Current ( 1 << 4 )
+// #define BIT_RXM1Current( 1 << 5 )
+// #define BIT_RXM1Position ( 1 << 6 )
+// #define BIT_RXM1Velocity ( 1 << 7 )
+
+// #define BIT_TXM1Enable ( 1<< 8 )
+// #define BIT_RXM1Enable ( 1<< 9 )
+// #define BIT_TXM1Write ( 1<< 10 )
+// #define BIT_RXM1Write ( 1<< 11 )
 
 /* StartRXMotor1 function */
 void StartRXMotor1(void const * argument)
 {
-  /* USER CODE BEGIN StartRXMotor1 */
+        /* USER CODE BEGIN StartRXMotor1 */
+        EventBits_t uxBits;
+        const TickType_t xTicksToWait = 50 / portTICK_PERIOD_MS;
+
         /* Infinite loop */
         for(;; )
         {
-                /*mptr = osPoolAlloc(mpool);         // Allocate memory for the message
-                   mptr->current[0] = 5.5;
-                   mptr->velocity[0] = 5.5;
-                   mptr->position[0] = 5.5;                                   //TODO Put code here: mptr->voltage = 223.72;
-                   osMessagePut(RXBoxM1Handle, (uint32_t)mptr, osWaitForever); // Send Message
-                   osThreadYield(); // Cooperative multitasking
-                   // We are done here, exit this thread*/
-                osDelay(Ts);
+                uxBits = xEventGroupWaitBits(
+                        xMotorM1EventGroup, /* The event group being tested. */
+                        BIT_TXM1Enable|BIT_TXM1Write|BIT_TXM1Complete, /* The bits within the event group to wait for. */
+                        pdTRUE, /* BIT_0 & BIT_4 should be cleared before returning. */
+                        pdFALSE, /* Don't wait for both bits, either bit will do. */
+                        xTicksToWait );/* Wait a maximum of 100ms for either bit to be set. */
+
+                if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Enable ) ) == ( BIT_TXM1Complete | BIT_TXM1Enable ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
+                }
+
+                else if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Write ) ) == ( BIT_TXM1Complete | BIT_TXM1Write ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
+                }
+
+                else if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Current ) ) == ( BIT_TXM1Complete | BIT_TXM1Current ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
+                        uxBits = xEventGroupSetBits(
+                                xMotorM1EventGroup,  /* The event group being updated. */
+                                BIT_RXM1Start);/* The bits being set. */
+                }
+
+                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Current ) ) == ( BIT_TXM1Complete | BIT_RXM1Current ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 12);
+                        uxBits = xEventGroupSetBits(
+                                xMotorM1EventGroup,  /* The event group being updated. */
+                                BIT_RXM1Start);/* The bits being set. */
+                }
+
+                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Position ) ) == ( BIT_TXM1Complete | BIT_RXM1Position  ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 14);
+                        uxBits = xEventGroupSetBits(
+                                xMotorM1EventGroup,  /* The event group being updated. */
+                                BIT_RXM1Start);/* The bits being set. */
+                }
+
+                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Velocity ) ) == ( BIT_TXM1Complete | BIT_RXM1Velocity  ) )
+                {
+                        /* xEventGroupWaitBits() returned because both bits were set. */
+                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 14);
+                        uxBits = xEventGroupSetBits(
+                                xMotorM1EventGroup,  /* The event group being updated. */
+                                BIT_RXM1Start);/* The bits being set. */
+                }
+
+                else
+                {
+                        /* xEventGroupWaitBits() returned because xTicksToWait ticks passed
+                           without either BIT_0 or BIT_4 becoming set. */
+                }
+
         }
-  /* USER CODE END StartRXMotor1 */
+        /* USER CODE END StartRXMotor1 */
 }
 
 /* StartRXMotor2 function */
 void StartRXMotor2(void const * argument)
 {
-  /* USER CODE BEGIN StartRXMotor2 */
+        /* USER CODE BEGIN StartRXMotor2 */
         /* Infinite loop */
         for(;; )
         {
-                /* mptr = osPoolAlloc(mpool);   // Allocate memory for the message
-                   mptr->current[1] = 7.7;
-                   mptr->velocity[1] = 7.7;
-                   mptr->position[1] = 7.7;                             //TODO Put code here: mptr->voltage = 223.72;
-                   osMessagePut(RXBoxM2Handle, (uint32_t)mptr, osWaitForever); // Send Message
-                   osThreadYield(); // Cooperative multitasking
-                   // We are done here, exit this thread*/
+
                 osDelay(Ts);
         }
-  /* USER CODE END StartRXMotor2 */
+        /* USER CODE END StartRXMotor2 */
 }
 
 /* StartCombineiNemo function */
 void StartCombineiNemo(void const * argument)
 {
-  /* USER CODE BEGIN StartCombineiNemo */
+        /* USER CODE BEGIN StartCombineiNemo */
         /* Infinite loop */
         //osEvent evt;
         for(;; )
@@ -1055,15 +1368,15 @@ void StartCombineiNemo(void const * argument)
 
                         osPoolFree(mpool, rptr); // free memory allocated for message
                    }*/
-        	osDelay(Ts);
+                osDelay(Ts);
         }
-  /* USER CODE END StartCombineiNemo */
+        /* USER CODE END StartCombineiNemo */
 }
 
 /* StartCombineM1 function */
 void StartCombineM1(void const * argument)
 {
-  /* USER CODE BEGIN StartCombineM1 */
+        /* USER CODE BEGIN StartCombineM1 */
         /* Infinite loop */
         //osEvent evt;
         for(;; )
@@ -1078,15 +1391,15 @@ void StartCombineM1(void const * argument)
 
                         osPoolFree(mpool, rptr); // free memory allocated for message
                    }*/
-        	osDelay(Ts);
+                osDelay(Ts);
         }
-  /* USER CODE END StartCombineM1 */
+        /* USER CODE END StartCombineM1 */
 }
 
 /* StartCombineM2 function */
 void StartCombineM2(void const * argument)
 {
-  /* USER CODE BEGIN StartCombineM2 */
+        /* USER CODE BEGIN StartCombineM2 */
         /* Infinite loop */
         //osEvent evt;
         for(;; )
@@ -1101,73 +1414,73 @@ void StartCombineM2(void const * argument)
 
                         osPoolFree(mpool, rptr); // free memory allocated for message
                    }*/
-        	osDelay(Ts);
+                osDelay(Ts);
         }
-  /* USER CODE END StartCombineM2 */
+        /* USER CODE END StartCombineM2 */
 }
 
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM1 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM1 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 /* USER CODE BEGIN Callback 0 */
 
 /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM1) {
-    HAL_IncTick();
-  }
+        if (htim->Instance == TIM1) {
+                HAL_IncTick();
+        }
 /* USER CODE BEGIN Callback 1 */
 
 /* USER CODE END Callback 1 */
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @param  None
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @param  None
+ * @retval None
+ */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler */
+        /* USER CODE BEGIN Error_Handler */
         /* User can add his own implementation to report the HAL error return state */
         while(1)
         {
         }
-  /* USER CODE END Error_Handler */ 
+        /* USER CODE END Error_Handler */
 }
 
 #ifdef USE_FULL_ASSERT
 
 /**
-   * @brief Reports the name of the source file and the source line number
-   * where the assert_param error has occurred.
-   * @param file: pointer to the source file name
-   * @param line: assert_param error line source number
-   * @retval None
-   */
+ * @brief Reports the name of the source file and the source line number
+ * where the assert_param error has occurred.
+ * @param file: pointer to the source file name
+ * @param line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t* file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
+        /* USER CODE BEGIN 6 */
         /* User can add his own implementation to report the file name and line number,
            ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+        /* USER CODE END 6 */
 
 }
 
 #endif
 
 /**
-  * @}
-  */ 
+ * @}
+ */
 
 /**
-  * @}
-*/ 
+ * @}
+ */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
