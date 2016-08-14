@@ -64,8 +64,8 @@ osThreadId TXMotor2Handle;
 osThreadId RXMotor1Handle;
 osThreadId RXMotor2Handle;
 osThreadId CombineiNemoHandle;
-osThreadId CombineM1Handle;
-osThreadId CombineM2Handle;
+osThreadId InitM1Handle;
+osThreadId InitM2Handle;
 osMessageQId TXBoxHandle;
 osMessageQId TXBoxM1Handle;
 osMessageQId TXBoxM2Handle;
@@ -154,8 +154,8 @@ void StartTXMotor2(void const * argument);
 void StartRXMotor1(void const * argument);
 void StartRXMotor2(void const * argument);
 void StartCombineiNemo(void const * argument);
-void StartCombineM1(void const * argument);
-void StartCombineM2(void const * argument);
+void StartInitM1(void const * argument);
+void StartInitM2(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -168,44 +168,19 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 
 static void DMA_Start(void);
 
-//FreeRTOS Notify
-static TaskHandle_t xTaskToNotify_M1 = NULL;
-static TaskHandle_t xTaskToNotify_M2 = NULL;
-
-//http://www.freertos.org/xEventGroupCreate.html
+//FreeRTOS Event Group for motor initialization
 /* Declare a variable to hold the created event group. */
-EventGroupHandle_t xMotorM1EventGroup;
+EventGroupHandle_t xM1EventGroup;
+EventGroupHandle_t xM2EventGroup;
 
-#define BIT_TXM1Start ( 1 << 0 )
-#define BIT_TXM1Complete ( 1 << 1 )
-#define BIT_RXM1Start ( 1 << 2 )
-#define BIT_RXM1Complete ( 1 << 3 )
-#define BIT_TXM1Current ( 1 << 4 )
-#define BIT_RXM1Current( 1 << 5 )
-#define BIT_RXM1Position ( 1 << 6 )
-#define BIT_RXM1Velocity ( 1 << 7 )
-
-#define BIT_TXM1Enable ( 1<< 8 )
-#define BIT_RXM1Enable ( 1<< 9 )
-#define BIT_TXM1Write ( 1<< 10 )
-#define BIT_RXM1Write ( 1<< 11 )
-
-/* Declare a variable to hold the created event group. */
-EventGroupHandle_t xMotorM2EventGroup;
-
-#define BIT_TXM2Start ( 1 << 0 )
-#define BIT_TXM2Complete ( 1 << 1 )
-#define BIT_RXM2Start ( 1 << 2 )
-#define BIT_RXM2Complete ( 1 << 3 )
-#define BIT_TXM2Current ( 1 << 4 )
-#define BIT_RXM2Current( 1 << 5 )
-#define BIT_RXM2Position ( 1 << 6 )
-#define BIT_RXM2Velocity ( 1 << 7 )
-
-#define BIT_TXM2Enable ( 1<< 8 )
-#define BIT_RXM2Enable ( 1<< 9 )
-#define BIT_TXM2Write ( 1<< 10 )
-#define BIT_RXM2Write ( 1<< 11 )
+#define BIT_M1InitWrite ( 1<<0 )
+#define BIT_M1InitEnable ( 1<<1 )
+#define BIT_M2InitWrite ( 1<<2 )
+#define BIT_M2InitEnable ( 1<<3 )
+#define BIT_M1InitWrite_Success ( 1<<4 )
+#define BIT_M1InitEnable_Success ( 1<<5 )
+#define BIT_M2InitWrite_Success ( 1<<6 )
+#define BIT_M2InitEnable_Success ( 1<<7 )
 
 //Motor functions
 void Motor_Init(void); //Initialises motors
@@ -268,7 +243,7 @@ int main(void)
 
         /* Create the thread(s) */
         /* definition and creation of defaultTask */
-        osThreadDef(defaultTask, StartDefaultTask, osPriorityBelowNormal, 0, 128);
+        osThreadDef(defaultTask, StartDefaultTask, osPriorityRealtime, 0, 128);
         defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
         /* definition and creation of TXPC */
@@ -303,13 +278,13 @@ int main(void)
         osThreadDef(CombineiNemo, StartCombineiNemo, osPriorityRealtime, 0, 128);
         CombineiNemoHandle = osThreadCreate(osThread(CombineiNemo), NULL);
 
-        /* definition and creation of CombineM1 */
-        osThreadDef(CombineM1, StartCombineM1, osPriorityRealtime, 0, 128);
-        CombineM1Handle = osThreadCreate(osThread(CombineM1), NULL);
+        /* definition and creation of InitM1 */
+        osThreadDef(InitM1, StartInitM1, osPriorityRealtime, 0, 128);
+        InitM1Handle = osThreadCreate(osThread(InitM1), NULL);
 
-        /* definition and creation of CombineM2 */
-        osThreadDef(CombineM2, StartCombineM2, osPriorityRealtime, 0, 128);
-        CombineM2Handle = osThreadCreate(osThread(CombineM2), NULL);
+        /* definition and creation of InitM2 */
+        osThreadDef(InitM2, StartInitM2, osPriorityRealtime, 0, 128);
+        InitM2Handle = osThreadCreate(osThread(InitM2), NULL);
 
         /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
@@ -550,28 +525,6 @@ static void MX_GPIO_Init(void)
 
 static void DMA_Start(void){
 
-        //HAL_UART_Transmit_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size);
-        //HAL_UART_Transmit_DMA(&huart1, TXBuf, (uint16_t)(sizeof(TXBuf)/sizeof(TXBuf[0])));
-        //HAL_UART_Receive_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size);
-        //static void DMA_SetConfig(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)
-        //HAL_StatusTypeDef HAL_DMA_Start(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)
-
-        // //DMA_HandleTypeDef hdma_usart1_rx;
-        // if(HAL_UART_Receive_DMA(&huart1, RXBuf, 10) != HAL_OK) {Error_Handler(); }
-        // //DMA_HandleTypeDef hdma_usart1_tx;
-        // if(HAL_UART_Transmit_DMA(&huart1, TXBuf, 10) != HAL_OK) {Error_Handler(); }
-        // //DMA_HandleTypeDef hdma_usart2_rx;
-        // //DMA_HandleTypeDef hdma_usart2_tx;
-        // if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
-        // //DMA_HandleTypeDef hdma_usart3_rx;
-        // //DMA_HandleTypeDef hdma_usart3_tx;
-        // if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
-        // //DMA_HandleTypeDef hdma_usart6_rx;
-        // //DMA_HandleTypeDef hdma_usart6_tx;
-
-
-
-
         //End of DMA transfer callbacks
         //HAL_DMA_RegisterCallback(DMA_HandleTypeDef *hdma, HAL_DMA_CallbackIDTypeDef CallbackID, void (* pCallback)(DMA_HandleTypeDef *_hdma));
 
@@ -593,116 +546,6 @@ static void DMA_Start(void){
 
 }
 
-// uint8_t Write_Access[11];
-// uint8_t Enable_Bridge[11];
-// uint8_t Disable_Bridge[20];
-//
-// uint8_t Current_Command[13];
-// uint8_t Position_Command[13];
-//
-// uint8_t Read_Current[7];
-// uint8_t Read_Velocity[7];
-// uint8_t Read_Position[7];
-
-void Motor_Init(void){
-
-
-
-        //HAL_DMA_Start_IT(&hdma_usart2_tx, (uint32_t)&TXBufM1, (uint32_t) &(huart2.Instance->DR), 14);
-        //HAL_DMA_Start_IT(&hdma_usart3_tx, (uint32_t)&TXBufM2, (uint32_t) &(huart3.Instance->DR), 14);
-
-        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
-        //while(TXM1Complete!=1);
-        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
-        //while(TXM2Complete!=1);
-
-        //__HAL_DMA_DISABLE(&hdma_usart3_tx);
-        //__HAL_DMA_ENABLE(&hdma_usart3_tx);
-        //while(HAL_DMA_GetState(&hdma_usart2_tx) == HAL_DMA_STATE_BUSY);
-
-        //Gain write access and enable bridge
-        //if(HAL_UART_DMAPause(&huart2) != HAL_OK){Error_Handler();}
-        //if(HAL_UART_DMAPause(&huart3) != HAL_OK){Error_Handler();}
-
-        //MX_USART2_UART_Init();
-        //MX_USART3_UART_Init();
-
-        //__HAL_UART_ENABLE(&huart2);
-        //__HAL_UART_ENABLE(&huart3);
-
-        //HAL_UART_Init(&huart2);
-        //HAL_UART_Init(&huart3);
-
-        //TODO Try osDelay()...?
-
-//		    if(HAL_UART_DMAPause(&huart2) != HAL_OK){Error_Handler();}
-//		    if(HAL_UART_DMAPause(&huart3) != HAL_OK){Error_Handler();}
-//        SetBuf(TXBufM1, Write_Access, 12);
-//        SetBuf(TXBufM2, Write_Access, 12);
-//        HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
-//        HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
-//        osDelay(500);
-//        SetBuf(TXBufM1, Enable_Bridge, 12);
-//        SetBuf(TXBufM2, Enable_Bridge, 12);
-//        HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
-//        HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
-//        osDelay(500);
-//        SetBuf(TXBufM1, Current_Command, 12);
-//        SetBuf(TXBufM2, Current_Command, 12);
-//        HAL_UART_DMAResume(&huart2);
-//        HAL_UART_DMAResume(&huart3);
-
-        //HAL_DMA_Start(&hdma_usart2_tx, (uint32_t)&TXBufM1, (uint32_t)huart2.Instance->DR, (uint32_t)14);
-        //TXM1Complete = 0;
-        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
-        //while(huart2.gState != HAL_UART_STATE_READY);
-        //osDelay(1000);
-        //while(HAL_DMA_GetState(&hdma_usart2_tx) != HAL_DMA_STATE_READY);
-        //while(TXM1Complete!=1);
-        //while(huart2->gState != HAL_UART_STATE_READY){};
-        //while(HAL_UART_GetState(&huart2) != HAL_UART_STATE_READY);
-        //while(__HAL_DMA_GET_IT_SOURCE(&hdma_usart2_tx, DMA_IT_TC) != RESET);
-        //HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
-
-        //SetBuf(TXBufM2, Write_Access, 12);
-        //TXM2Complete = 0;
-        //HAL_DMA_Start(&hdma_usart3_tx, (uint32_t)&TXBufM2, (uint32_t)huart3.Instance->DR, (uint32_t)14);
-        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
-        //while(huart3.gState != HAL_UART_STATE_READY);
-        //osDelay(1000);
-        //while(HAL_DMA_GetState(&hdma_usart3_tx) != HAL_DMA_STATE_READY);
-        //while(TXM2Complete!=1);
-        //while(HAL_UART_GetState(&huart3) != HAL_UART_STATE_READY);
-        //while(__HAL_DMA_GET_IT_SOURCE(&hdma_usart3_tx, DMA_IT_TC) != RESET);
-        //HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
-
-        //SetBuf(TXBufM1, Enable_Bridge, 12);
-        //TXM1Complete = 0;
-        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler();}
-        //while(huart2.gState != HAL_UART_STATE_READY);
-        //osDelay(1000);
-        //while(HAL_DMA_GetState(&hdma_usart2_tx) != HAL_DMA_STATE_READY);
-        //while(TXM1Complete!=1);
-        //HAL_UART_Transmit(&huart2, TXBufM1, 14, 1000);
-
-        //SetBuf(TXBufM2, Enable_Bridge, 12);
-        //TXM2Complete = 0;
-        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler();}
-        //while(huart3.gState != HAL_UART_STATE_READY);
-        //osDelay(1000);
-        //while(HAL_DMA_GetState(&hdma_usart3_tx) != HAL_DMA_STATE_READY);
-        //while(TXM2Complete!=1);
-        //HAL_UART_Transmit(&huart3, TXBufM2, 14, 1000);
-
-        //SetBuf(TXBufM1, Current_Command, 12);
-        //SetBuf(TXBufM2, Current_Command, 12);
-        //HAL_UART_DMAResume(&huart2);
-        //HAL_UART_DMAResume(&huart3);
-
-        //if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) {Error_Handler(); }
-        //if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) {Error_Handler(); }
-}
-
 void Motor_Kill(void){
         //Disable bridge
         HAL_UART_DMAStop(&huart2);
@@ -722,6 +565,17 @@ void SetCurrent(uint8_t buf[]){
         SetBuf(buf, Current_Command, 14);
         SetBytes(buf, 8, RXBuf[0], 9, RXBuf[1], 10, RXBuf[2], 11, RXBuf[3]);
 }
+
+// uint8_t Write_Access[11];
+// uint8_t Enable_Bridge[11];
+// uint8_t Disable_Bridge[20];
+//
+// uint8_t Current_Command[13];
+// uint8_t Position_Command[13];
+//
+// uint8_t Read_Current[7];
+// uint8_t Read_Velocity[7];
+// uint8_t Read_Position[7];
 
 void Motor_Commands(void){
         Write_Access[0] = 0xA5;
@@ -832,12 +686,6 @@ void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t v
 }
 
 void TransmitM1_DMA(uint8_t *data, uint8_t size){
-        /* At this point xTaskToNotify should be NULL as no transmission is in
-           progress.  A mutex can be used to guard access to the peripheral if
-           necessary. */
-        configASSERT( xTaskToNotify_M1 == NULL );
-        /* Store the handle of the calling task. */
-        xTaskToNotify_M1 = xTaskGetCurrentTaskHandle();
         //Set buffer
         SetBuf(TXBufM1, data, size);
         /* Start the transmission - an interrupt is generated when the transmission
@@ -846,12 +694,6 @@ void TransmitM1_DMA(uint8_t *data, uint8_t size){
 }
 
 void TransmitM2_DMA(uint8_t *data, uint8_t size){
-        /* At this point xTaskToNotify should be NULL as no transmission is in
-           progress.  A mutex can be used to guard access to the peripheral if
-           necessary. */
-        configASSERT( xTaskToNotify_M2 == NULL );
-        /* Store the handle of the calling task. */
-        xTaskToNotify_M2 = xTaskGetCurrentTaskHandle();
         //Set buffer
         SetBuf(TXBufM2, data, size);
         /* Start the transmission - an interrupt is generated when the transmission
@@ -860,85 +702,101 @@ void TransmitM2_DMA(uint8_t *data, uint8_t size){
 }
 
 //Select Call-backs functions called after Transfer complete
-
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+        EventBits_t uxBits;
         BaseType_t xHigherPriorityTaskWoken;
-        /* We have not woken a task at the start of the ISR. */
-        xHigherPriorityTaskWoken = pdFALSE;
+        BaseType_t xYieldRequired;
 
         if(huart->Instance==USART2) {
-                /* At this point xTaskToNotify should not be NULL as a transmission was
-                   in progress. */
-                configASSERT( xTaskToNotify_M1 != NULL );
+                uxBits = xEventGroupGetBitsFromISR( xM1EventGroup );
 
-                /* Notify the task that the transmission is complete. */
-                vTaskNotifyGiveFromISR( xTaskToNotify_M1, &xHigherPriorityTaskWoken );
+                //Check if motors initiated
+                if( ( uxBits & ( BIT_M1InitWrite | BIT_M1InitEnable ) ) == ( BIT_M1InitWrite | BIT_M1InitEnable ) )
+                {
+                        //TODO Move to successful reception function
+                        xEventGroupSetBitsFromISR(
+                              xM1EventGroup,  /* The event group being updated. */
+                              BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits being set. */
+                              &xHigherPriorityTaskWoken );
 
-                /* There are no transmissions in progress, so no tasks to notify. */
-                xTaskToNotify_M1 = NULL;
+                        // Resume the suspended task.
+                                xYieldRequired = xTaskResumeFromISR( TXMotor1Handle );
 
-                /* If xHigherPriorityTaskWoken is now set to pdTRUE then a context switch
-                   should be performed to ensure the interrupt returns directly to the highest
-                   priority task.  The macro used for this purpose is dependent on the port in
-                   use and may be called portEND_SWITCHING_ISR(). */
-                portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+                        if( xYieldRequired == pdTRUE )
+                        {
+                                // We should switch context so the ISR returns to a different task.
+                                // NOTE:  How this is done depends on the port you are using.  Check
+                                // the documentation and examples for your port.
+                                portYIELD_FROM_ISR(defaultTaskHandle);
+                        }
+                }
         }
+
         if(huart->Instance==USART3) {
-                /* At this point xTaskToNotify should not be NULL as a transmission was
-                   in progress. */
-                configASSERT( xTaskToNotify_M2 != NULL );
+                uxBits = xEventGroupGetBitsFromISR( xM2EventGroup );
 
-                /* Notify the task that the transmission is complete. */
-                vTaskNotifyGiveFromISR( xTaskToNotify_M2, &xHigherPriorityTaskWoken );
+                //Check if motors initiated
+                if( ( uxBits & ( BIT_M2InitWrite | BIT_M2InitEnable ) ) == ( BIT_M2InitWrite | BIT_M2InitEnable ) )
+                {
+                        //TODO Move to successful reception function
+                        xEventGroupSetBitsFromISR(
+                              xM2EventGroup,  /* The event group being updated. */
+                              BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits being set. */
+                              &xHigherPriorityTaskWoken );
 
-                /* There are no transmissions in progress, so no tasks to notify. */
-                xTaskToNotify_M2 = NULL;
+                        // Resume the suspended task.
+                                xYieldRequired = xTaskResumeFromISR( TXMotor2Handle );
 
-                /* If xHigherPriorityTaskWoken is now set to pdTRUE then a context switch
-                   should be performed to ensure the interrupt returns directly to the highest
-                   priority task.  The macro used for this purpose is dependent on the port in
-                   use and may be called portEND_SWITCHING_ISR(). */
-                portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+                        if( xYieldRequired == pdTRUE )
+                        {
+                                // We should switch context so the ISR returns to a different task.
+                                // NOTE:  How this is done depends on the port you are using.  Check
+                                // the documentation and examples for your port.
+                                portYIELD_FROM_ISR(defaultTaskHandle);
+                        }
+                }
         }
-        //xQueueSendFromISR( StatusHandle, &TXM1Complete, &xHigherPriorityTaskWoken );
-
-
-        //Now the buffer is empty we can switch context if necessary.
-        // if( xHigherPriorityTaskWoken )
-        // {
-        //         /* signal end-of-irq and possible reschedule point */
-        //         portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
-        // }
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef huart2){
+        BaseType_t xYieldRequired;
 
+        if(huart->Instance==USART2) {
+                // Resume the suspended task.
+                xYieldRequired = xTaskResumeFromISR( RXMotor1Handle );
 
+                if( xYieldRequired == pdTRUE )
+                {
+                        // We should switch context so the ISR returns to a different task.
+                        // NOTE:  How this is done depends on the port you are using.  Check
+                        // the documentation and examples for your port.
+                        portYIELD_FROM_ISR(defaultTaskHandle);
+                }
+        }
+
+        if(huart->Instance==USART3) {
+                // Resume the suspended task.
+                xYieldRequired = xTaskResumeFromISR( RXMotor2Handle );
+
+                if( xYieldRequired == pdTRUE )
+                {
+                        // We should switch context so the ISR returns to a different task.
+                        // NOTE:  How this is done depends on the port you are using.  Check
+                        // the documentation and examples for your port.
+                        portYIELD_FROM_ISR(defaultTaskHandle);
+                }
+        }
 }
-
-// static void UART_DMATransmitCplt(DMA_HandleTypeDef *hdma)
-// {
-//         /* Set transmission flag: transfer complete + clear tx buf*/
-//         if(hdma == hdma_usart2_tx) {
-//                 ClearBuf(TXBufM1, 14);
-//                 //huart->gState = HAL_UART_STATE_READY;
-//         }
-//
-//         /* Set transmission flag: transfer complete + clear tx buf*/
-//         if(hdma == hdma_usart3_tx) {
-//                 ClearBuf(TXBufM2, 14);
-//                 //huart->gState = HAL_UART_STATE_READY;
-//         }
-// }
 
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
+
         /* USER CODE BEGIN 5 */
         /* Attempt to create the event group. */
-        xMotorProtocolEventGroup = xEventGroupCreate();
+        xM1EventGroup = xEventGroupCreate();
 
         /* Was the event group created successfully? */
         if( xCreatedEventGroup == NULL )
@@ -951,12 +809,32 @@ void StartDefaultTask(void const * argument)
                 /* The event group was created. */
         }
 
+        /* Attempt to create the event group. */
+        xM2EventGroup = xEventGroupCreate();
+
+        /* Was the event group created successfully? */
+        if( xCreatedEventGroup == NULL )
+        {
+                /* The event group was not created because there was insufficient
+                   FreeRTOS heap available. */
+        }
+        else
+        {
+                /* The event group was created. */
+        }
 
         /* Infinite loop */
         for(;; )
         {
+                // Suspend ourselves.
+                vTaskSuspend( NULL );
 
-                osDelay(500); //TODO Remove
+                // We cannot get here unless another task calls vTaskResume
+                // with our handle as the parameter.
+                vTaskResume( TXMotor1Handle );
+                vTaskResume( RXMotor1Handle );
+                vTaskResume( TXMotor2Handle );
+                vTaskResume( RXMotor2Handle );
         }
         /* USER CODE END 5 */
 }
@@ -1046,96 +924,56 @@ void StartTXMotor1(void const * argument)
 {
         /* USER CODE BEGIN StartTXMotor1 */
 
-        //http://www.freertos.org/vTaskNotifyGiveFromISR.html
-        const TickType_t xMaxBlockTime_Init = pdMS_TO_TICKS( 500 );
-        const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 10 );
-        uint32_t ulNotificationValue;
-
-        //Initialize Motor
-        TransmitM1_DMA(Write_Access, 12);
-        /* Wait for the transmission to complete. */
-        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
-
-        if( ulNotificationValue == 1 )
-        {
-                /* The transmission ended as expected. */
-                TransmitM1_DMA(Enable_Bridge, 12);
-                /* Wait for the transmission to complete. */
-                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
-
-                if( ulNotificationValue == 1 ) {
-                        /* The transmission ended as expected. */
-                }
-
-                else
-                {
-                        /* The call to ulTaskNotifyTake() timed out. */
-                }
-
-        }
-
-        else
-        {
-                /* The call to ulTaskNotifyTake() timed out. */
-        }
-
         /* Infinite loop */
         for(;; )
         {
+                //Wait for motor initialization
+                uxBits = xEventGroupWaitBits(
+                        xM1EventGroup, /* The event group being tested. */
+                        BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits within the event group to wait for. */
+                        pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
+                        pdTRUE, /* DO wait for both bits. */
+                        portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
+
                 TransmitM1_DMA(Current_Command, 14);
-                /* Wait for the transmission to complete. */
-                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                if( ulNotificationValue == 1 )
-                {
-                        /* The transmission ended as expected. */
-                        TransmitM1_DMA(Read_Current, 8);
-                        /* Wait for the transmission to complete. */
-                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor1Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                        if( ulNotificationValue == 1 )
-                        {
-                                /* The transmission ended as expected. */
-                                TransmitM1_DMA(Read_Position, 8);
-                                /* Wait for the transmission to complete. */
-                                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                TransmitM1_DMA(Read_Current, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                if( ulNotificationValue == 1 )
-                                {
-                                        /* The transmission ended as expected. */
-                                        TransmitM1_DMA(Read_Velocity, 8);
-                                        /* Wait for the transmission to complete. */
-                                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor1Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                                        if( ulNotificationValue == 1 ) {
-                                                /* The transmission ended as expected. */
-                                                //HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
-                                        }
+                TransmitM1_DMA(Read_Position, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                        else
-                                        {
-                                                /* The call to ulTaskNotifyTake() timed out. */
-                                        }
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor1Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                                }
+                TransmitM1_DMA(Read_Velocity, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                else
-                                {
-                                        /* The call to ulTaskNotifyTake() timed out. */
-                                }
-
-                        }
-
-                        else
-                        {
-                                /* The call to ulTaskNotifyTake() timed out. */
-                        }
-                }
-
-                else
-                {
-                        /* The call to ulTaskNotifyTake() timed out. */
-                }
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor1Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
                 osDelay(Ts);
         }
@@ -1146,189 +984,80 @@ void StartTXMotor1(void const * argument)
 void StartTXMotor2(void const * argument)
 {
         /* USER CODE BEGIN StartTXMotor2 */
-        //http://www.freertos.org/vTaskNotifyGiveFromISR.html
-        const TickType_t xMaxBlockTime_Init = pdMS_TO_TICKS( 500 );
-        const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 10 );
-        uint32_t ulNotificationValue;
-
-        //Initialize Motor
-        TransmitM1_DMA(Write_Access, 12);
-        /* Wait for the transmission to complete. */
-        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
-
-        if( ulNotificationValue == 1 )
-        {
-                /* The transmission ended as expected. */
-                TransmitM1_DMA(Enable_Bridge, 12);
-                /* Wait for the transmission to complete. */
-                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime_Init );
-
-                if( ulNotificationValue == 1 ) {
-                        /* The transmission ended as expected. */
-                }
-
-                else
-                {
-                        /* The call to ulTaskNotifyTake() timed out. */
-                }
-
-        }
-
-        else
-        {
-                /* The call to ulTaskNotifyTake() timed out. */
-        }
 
         /* Infinite loop */
         for(;; )
         {
+                //Wait for motor initialization
+                uxBits = xEventGroupWaitBits(
+                        xM2EventGroup, /* The event group being tested. */
+                        BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits within the event group to wait for. */
+                        pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
+                        pdTRUE, /* DO wait for both bits. */
+                        portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
+
                 TransmitM2_DMA(Current_Command, 14);
-                /* Wait for the transmission to complete. */
-                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                if( ulNotificationValue == 1 )
-                {
-                        /* The transmission ended as expected. */
-                        TransmitM2_DMA(Read_Current, 12);
-                        /* Wait for the transmission to complete. */
-                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor2Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                        if( ulNotificationValue == 1 )
-                        {
-                                /* The transmission ended as expected. */
-                                TransmitM2_DMA(Read_Position, 12);
-                                /* Wait for the transmission to complete. */
-                                ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                TransmitM2_DMA(Read_Current, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                if( ulNotificationValue == 1 )
-                                {
-                                        /* The transmission ended as expected. */
-                                        TransmitM2_DMA(Read_Velocity, 12);
-                                        /* Wait for the transmission to complete. */
-                                        ulNotificationValue = ulTaskNotifyTake( pdFALSE, xMaxBlockTime );
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor2Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                                        if( ulNotificationValue == 1 ) {
-                                                /* The transmission ended as expected. */
-                                        }
+                TransmitM2_DMA(Read_Position, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                        else
-                                        {
-                                                /* The call to ulTaskNotifyTake() timed out. */
-                                        }
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor2Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                                }
+                TransmitM2_DMA(Read_Velocity, 8);
+                // The task suspends itself.
+                vTaskSuspend( NULL );
 
-                                else
-                                {
-                                        /* The call to ulTaskNotifyTake() timed out. */
-                                }
-
-                        }
-
-                        else
-                        {
-                                /* The call to ulTaskNotifyTake() timed out. */
-                        }
-                }
-
-                else
-                {
-                        /* The call to ulTaskNotifyTake() timed out. */
-                }
+                /* Send a notification to prvTask2(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( RXMotor2Handle );
+                /* Block to wait for prvTask2() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
                 osDelay(Ts);
         }
         /* USER CODE END StartTXMotor2 */
 }
 
-/* Declare a variable to hold the created event group. */
-// EventGroupHandle_t xMotorM1EventGroup;
-//
-// #define BIT_TXM1Start ( 1 << 0 )
-// #define BIT_TXM1Complete ( 1 << 1 )
-// #define BIT_RXM1Start ( 1 << 2 )
-// #define BIT_RXM1Complete ( 1 << 3 )
-// #define BIT_TXM1Current ( 1 << 4 )
-// #define BIT_RXM1Current( 1 << 5 )
-// #define BIT_RXM1Position ( 1 << 6 )
-// #define BIT_RXM1Velocity ( 1 << 7 )
-
-// #define BIT_TXM1Enable ( 1<< 8 )
-// #define BIT_RXM1Enable ( 1<< 9 )
-// #define BIT_TXM1Write ( 1<< 10 )
-// #define BIT_RXM1Write ( 1<< 11 )
-
 /* StartRXMotor1 function */
 void StartRXMotor1(void const * argument)
 {
         /* USER CODE BEGIN StartRXMotor1 */
-        EventBits_t uxBits;
-        const TickType_t xTicksToWait = 50 / portTICK_PERIOD_MS;
 
         /* Infinite loop */
         for(;; )
         {
-                uxBits = xEventGroupWaitBits(
-                        xMotorM1EventGroup, /* The event group being tested. */
-                        BIT_TXM1Enable|BIT_TXM1Write|BIT_TXM1Complete, /* The bits within the event group to wait for. */
-                        pdTRUE, /* BIT_0 & BIT_4 should be cleared before returning. */
-                        pdFALSE, /* Don't wait for both bits, either bit will do. */
-                        xTicksToWait );/* Wait a maximum of 100ms for either bit to be set. */
+                /* Block to wait for prvTask1() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Enable ) ) == ( BIT_TXM1Complete | BIT_TXM1Enable ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
-                }
+                HAL_UART_Receive_DMA(&huart2, RXBufM1, 14);
+                vTaskSuspend( NULL );
 
-                else if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Write ) ) == ( BIT_TXM1Complete | BIT_TXM1Write ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
-                }
-
-                else if( ( uxBits & ( BIT_TXM1Complete | BIT_TXM1Current ) ) == ( BIT_TXM1Complete | BIT_TXM1Current ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 8);
-                        uxBits = xEventGroupSetBits(
-                                xMotorM1EventGroup,  /* The event group being updated. */
-                                BIT_RXM1Start);/* The bits being set. */
-                }
-
-                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Current ) ) == ( BIT_TXM1Complete | BIT_RXM1Current ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 12);
-                        uxBits = xEventGroupSetBits(
-                                xMotorM1EventGroup,  /* The event group being updated. */
-                                BIT_RXM1Start);/* The bits being set. */
-                }
-
-                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Position ) ) == ( BIT_TXM1Complete | BIT_RXM1Position  ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 14);
-                        uxBits = xEventGroupSetBits(
-                                xMotorM1EventGroup,  /* The event group being updated. */
-                                BIT_RXM1Start);/* The bits being set. */
-                }
-
-                else if( ( uxBits & ( BIT_TXM1Complete | BIT_RXM1Velocity ) ) == ( BIT_TXM1Complete | BIT_RXM1Velocity  ) )
-                {
-                        /* xEventGroupWaitBits() returned because both bits were set. */
-                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 14);
-                        uxBits = xEventGroupSetBits(
-                                xMotorM1EventGroup,  /* The event group being updated. */
-                                BIT_RXM1Start);/* The bits being set. */
-                }
-
-                else
-                {
-                        /* xEventGroupWaitBits() returned because xTicksToWait ticks passed
-                           without either BIT_0 or BIT_4 becoming set. */
-                }
-
+                /* Send a notification to prvTask1(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( TXMotor1Handle );
         }
         /* USER CODE END StartRXMotor1 */
 }
@@ -1340,8 +1069,15 @@ void StartRXMotor2(void const * argument)
         /* Infinite loop */
         for(;; )
         {
+                /* Block to wait for prvTask1() to notify this task. */
+                ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
 
-                osDelay(Ts);
+                HAL_UART_Receive_DMA(&huart3, RXBufM2, 14);
+                vTaskSuspend( NULL );
+
+                /* Send a notification to prvTask1(), bringing it out of the Blocked
+                   state. */
+                xTaskNotifyGive( TXMotor2Handle );
         }
         /* USER CODE END StartRXMotor2 */
 }
@@ -1373,50 +1109,60 @@ void StartCombineiNemo(void const * argument)
         /* USER CODE END StartCombineiNemo */
 }
 
-/* StartCombineM1 function */
-void StartCombineM1(void const * argument)
+/* StartInitM1 function */
+void StartInitM1(void const * argument)
 {
-        /* USER CODE BEGIN StartCombineM1 */
+        /* USER CODE BEGIN StartInitM1 */
+        xEventGroupSetBits(
+                xM1EventGroup,          /* The event group being updated. */
+                BIT_M1InitWrite );      /* The bits being set. */
+        TransmitM1_DMA(Write_Access, 12);
+
+        osDelay(500);
+
+        xEventGroupSetBits(
+                xM1EventGroup,          /* The event group being updated. */
+                BIT_M1InitEnable );      /* The bits being set. */
+        TransmitM1_DMA(Enable_Bridge, 12);
+
+        osDelay(500);
+
+        //vTaskResume( TXMotor1Handle );
+
         /* Infinite loop */
-        //osEvent evt;
-        for(;; )
-        {
-                /*evt = osMessageGet(RXBoxM1Handle, osWaitForever); // wait for message
-                   if (evt.status == osEventMessage) {
-                        rptr = evt.value.p;
-
-                        // TXBuf[1] = rptr->current[0]; //TODO
-                        // TXBuf[3] = rptr->velocity[0];
-                        // TXBuf[5] = rptr->position[0];
-
-                        osPoolFree(mpool, rptr); // free memory allocated for message
-                   }*/
-                osDelay(Ts);
-        }
-        /* USER CODE END StartCombineM1 */
+        // for(;;)
+        // {
+        //   osDelay(1);
+        // }
+        /* USER CODE END StartInitM1 */
 }
 
-/* StartCombineM2 function */
-void StartCombineM2(void const * argument)
+/* StartInitM2 function */
+void StartInitM2(void const * argument)
 {
-        /* USER CODE BEGIN StartCombineM2 */
+        /* USER CODE BEGIN StartInitM2 */
+        xEventGroupSetBits(
+                xM2EventGroup,          /* The event group being updated. */
+                BIT_M2InitWrite );      /* The bits being set. */
+        TransmitM2_DMA(Write_Access, 12);
+
+        osDelay(500);
+
+        xEventGroupSetBits(
+                xM2EventGroup,          /* The event group being updated. */
+                BIT_M2InitEnable );      /* The bits being set. */
+        TransmitM2_DMA(Enable_Bridge, 12);
+
+        osDelay(500);
+
+        //vTaskResume( TXMotor2Handle );
+        
         /* Infinite loop */
-        //osEvent evt;
-        for(;; )
-        {
-                /*evt = osMessageGet(RXBoxM2Handle, osWaitForever); // wait for message
-                   if (evt.status == osEventMessage) {
-                        rptr = evt.value.p;
-
-                        // TXBuf[2] = rptr->current[1]; //TODO
-                        // TXBuf[4] = rptr->velocity[1];
-                        // TXBuf[6] = rptr->position[1];
-
-                        osPoolFree(mpool, rptr); // free memory allocated for message
-                   }*/
-                osDelay(Ts);
-        }
-        /* USER CODE END StartCombineM2 */
+        // for(;;)
+        // {
+        //   osDelay(1);
+        // }
+        /* USER CODE END StartInitM2 */
 }
 
 /**
