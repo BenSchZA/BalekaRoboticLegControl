@@ -675,9 +675,6 @@ void SetBuf(uint8_t buf[], uint8_t set[], uint8_t size){
         }
 }
 
-//void ClearBit; //TODO
-//void SetBit; //TODO
-
 void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t val2, uint8_t pos3, uint8_t val3, uint8_t pos4, uint8_t val4){
         if (pos1 != NULL) {buf[pos1] = buf[val1]; }
         if (pos2 != NULL) {buf[pos2] = buf[val2]; }
@@ -686,19 +683,17 @@ void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t v
 }
 
 void TransmitM1_DMA(uint8_t *data, uint8_t size){
-        //Set buffer
-        SetBuf(TXBufM1, data, size);
         /* Start the transmission - an interrupt is generated when the transmission
            is complete. */
-        if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler(); }
+        //if(HAL_UART_Transmit_DMA(&huart2, data, size) != HAL_OK) { Error_Handler(); }
+        HAL_UART_Transmit_DMA(&huart2, data, size);
 }
 
 void TransmitM2_DMA(uint8_t *data, uint8_t size){
-        //Set buffer
-        SetBuf(TXBufM2, data, size);
         /* Start the transmission - an interrupt is generated when the transmission
            is complete. */
-        if(HAL_UART_Transmit_DMA(&huart3, TXBufM2, 14) != HAL_OK) { Error_Handler(); }
+        //if(HAL_UART_Transmit_DMA(&huart3, data, size) != HAL_OK) { Error_Handler(); }
+        HAL_UART_Transmit_DMA(&huart3, data, size);
 }
 
 //Select Call-backs functions called after Transfer complete
@@ -715,12 +710,12 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
                 {
                         //TODO Move to successful reception function
                         xEventGroupSetBitsFromISR(
-                              xM1EventGroup,  /* The event group being updated. */
-                              BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits being set. */
-                              &xHigherPriorityTaskWoken );
+                                xM1EventGroup, /* The event group being updated. */
+                                BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits being set. */
+                                &xHigherPriorityTaskWoken );
 
                         // Resume the suspended task.
-                                xYieldRequired = xTaskResumeFromISR( TXMotor1Handle );
+                        xYieldRequired = xTaskResumeFromISR( TXMotor1Handle );
 
                         if( xYieldRequired == pdTRUE )
                         {
@@ -740,12 +735,12 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
                 {
                         //TODO Move to successful reception function
                         xEventGroupSetBitsFromISR(
-                              xM2EventGroup,  /* The event group being updated. */
-                              BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits being set. */
-                              &xHigherPriorityTaskWoken );
+                                xM2EventGroup, /* The event group being updated. */
+                                BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits being set. */
+                                &xHigherPriorityTaskWoken );
 
                         // Resume the suspended task.
-                                xYieldRequired = xTaskResumeFromISR( TXMotor2Handle );
+                        xYieldRequired = xTaskResumeFromISR( TXMotor2Handle );
 
                         if( xYieldRequired == pdTRUE )
                         {
@@ -843,33 +838,13 @@ void StartDefaultTask(void const * argument)
 void StartTXPC(void const * argument)
 {
         /* USER CODE BEGIN StartTXPC */
-        //osDelay(1000);
-        //Motor_Init();
-        //uint8_t i;
 
-        //Motor_Kill();
         /* Infinite loop */
         for(;; )
         {
-                //HAL_UART_Transmit_DMA(&huart1,(uint8_t *)TXBuf, strlen(TXBuf)); //TODO ...
-//          if(i==1){
-//          RXBuf[0] = 0x48;
-//          RXBuf[1] = 0x01;
-//          RXBuf[2] = 0;
-//          RXBuf[3] = 0;
-//          i=0;
-//          }
-//
-//          if(i==0){
-//          RXBuf[0] = 0;
-//          RXBuf[1] = 0;
-//          RXBuf[2] = 0;
-//          RXBuf[3] = 0;
-//          i=1;;
-//          }
 
-//          SetCurrent(TXBufM1);
-//          SetCurrent(TXBufM2);
+        
+
 
                 // uint8_t TXM1Complete = 0;
                 // if(HAL_UART_Transmit_DMA(&huart2, TXBufM1, 14) != HAL_OK) { Error_Handler(); }
@@ -914,6 +889,7 @@ void StartRXiNemo(void const * argument)
                    osMessagePut(RXBoxiNemoHandle, (uint32_t)mptr, osWaitForever); // Send Message
                    osThreadYield(); // Cooperative multitasking
                    // We are done here, exit this thread*/
+
                 osDelay(Ts);
         }
         /* USER CODE END StartRXiNemo */
@@ -924,16 +900,17 @@ void StartTXMotor1(void const * argument)
 {
         /* USER CODE BEGIN StartTXMotor1 */
 
+        //Wait for motor initialization
+        uxBits = xEventGroupWaitBits(
+                xM1EventGroup, /* The event group being tested. */
+                BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits within the event group to wait for. */
+                pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
+                pdTRUE, /* DO wait for both bits. */
+                portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
+
         /* Infinite loop */
         for(;; )
         {
-                //Wait for motor initialization
-                uxBits = xEventGroupWaitBits(
-                        xM1EventGroup, /* The event group being tested. */
-                        BIT_M1InitWrite_Success|BIT_M1InitEnable_Success, /* The bits within the event group to wait for. */
-                        pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
-                        pdTRUE, /* DO wait for both bits. */
-                        portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
 
                 TransmitM1_DMA(Current_Command, 14);
                 // The task suspends itself.
@@ -985,16 +962,17 @@ void StartTXMotor2(void const * argument)
 {
         /* USER CODE BEGIN StartTXMotor2 */
 
+        //Wait for motor initialization
+        uxBits = xEventGroupWaitBits(
+                xM2EventGroup, /* The event group being tested. */
+                BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits within the event group to wait for. */
+                pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
+                pdTRUE, /* DO wait for both bits. */
+                portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
+
         /* Infinite loop */
         for(;; )
         {
-                //Wait for motor initialization
-                uxBits = xEventGroupWaitBits(
-                        xM2EventGroup, /* The event group being tested. */
-                        BIT_M2InitWrite_Success|BIT_M2InitEnable_Success, /* The bits within the event group to wait for. */
-                        pdFALSE, /* BIT_0 & BIT_4 should NOT be cleared before returning. */
-                        pdTRUE, /* DO wait for both bits. */
-                        portMAX_DELAY );/* Wait a maximum of 100ms for either bit to be set. */
 
                 TransmitM2_DMA(Current_Command, 14);
                 // The task suspends itself.
@@ -1156,7 +1134,7 @@ void StartInitM2(void const * argument)
         osDelay(500);
 
         //vTaskResume( TXMotor2Handle );
-        
+
         /* Infinite loop */
         // for(;;)
         // {

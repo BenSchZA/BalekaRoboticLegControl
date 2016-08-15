@@ -10,7 +10,7 @@
 
 #include "stdint.h"
 
-void initCRC();
+void initCRC(void);
 
 uint32_t crcCalc(const uint8_t* data, uint16_t startIndex, uint16_t length);
 
