@@ -310,64 +310,70 @@ uint8_t VELOCITY_DATA[8] = {0xA5, 0x3F, 0x01, 0x11, 0x02, 0x02, 0x8F, 0xF9};
 //memccpy(MotorPacket.VELOCITY_DATA, VELOCITY_DATA, 0, sizeof(VELOCITY_DATA));
 
 //Motor Replies
-struct HeartStruct {
-        struct KILL {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t TX_DATA[2];
-                uint8_t TX_CRC2[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-        } KILL;
-        struct WRITE {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t TX_DATA[2];
-                uint8_t TX_CRC2[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-        } WRITE;
-        struct BRIDGE {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t TX_DATA[2];
-                uint8_t TX_CRC2[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-        } BRIDGE;
-        struct CURRENT_SET {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t TX_DATA[4];
-                uint8_t TX_CRC2[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-        } CURRENT_SET;
-        struct CURRENT_DATA {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-                uint8_t RX_DATA[2];
-                uint8_t RX_CRC2[2];
-        } CURRENT_DATA;
-        struct POSITION_DATA {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-                uint8_t RX_DATA[4];
-                uint8_t RX_CRC2[2];
-        } POSITION_DATA;
-        struct VELOCITY_DATA {
-                uint8_t TX_HEADER[6];
-                uint8_t TX_CRC1[2];
-                uint8_t RX_HEADER[6];
-                uint8_t RX_CRC1[2];
-                uint8_t RX_DATA[4];
-                uint8_t RX_CRC2[2];
-        } VELOCITY_DATA;
-};
+// struct HeartStruct {
+//         struct KILL {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t TX_DATA[2];
+//                 uint8_t TX_CRC2[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//         } KILL;
+//         struct WRITE {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t TX_DATA[2];
+//                 uint8_t TX_CRC2[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//         } WRITE;
+//         struct BRIDGE {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t TX_DATA[2];
+//                 uint8_t TX_CRC2[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//         } BRIDGE;
+//         struct CURRENT_SET {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t TX_DATA[4];
+//                 uint8_t TX_CRC2[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//         } CURRENT_SET;
+//         struct CURRENT_DATA {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//                 uint8_t RX_DATA[2];
+//                 uint8_t RX_CRC2[2];
+//         } CURRENT_DATA;
+//         struct POSITION_DATA {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//                 uint8_t RX_DATA[4];
+//                 uint8_t RX_CRC2[2];
+//         } POSITION_DATA;
+//         struct VELOCITY_DATA {
+//                 uint8_t TX_HEADER[6];
+//                 uint8_t TX_CRC1[2];
+//                 uint8_t RX_HEADER[6];
+//                 uint8_t RX_CRC1[2];
+//                 uint8_t RX_DATA[4];
+//                 uint8_t RX_CRC2[2];
+//         } VELOCITY_DATA;
+// };
+
+union {
+        uint32_t WORD;
+        uint16_t HALFWORD;
+        uint8_t BYTE[4];
+} WORDtoBYTE;
 
 struct HeartStruct MotorHeart;
 //Transmit pointer PCPacketPTR with sizeof(PCPacket)
@@ -918,12 +924,12 @@ void StartHeartbeat(void const * argument)
                         if(LOOP==3)
                         {
                                 // Resume the suspended task ourselves.
-                                vTaskResume( xHandle );
+                                vTaskResume( TXPCHandle );
                                 // The created task will once again get microcontroller processing
                                 // time in accordance with its priority within the system.
                                 LOOP = 0;
                                 osDelay(5);
-                                vTaskSuspend( xHandle );
+                                vTaskSuspend( TXPCHandle );
                         }
                 }
         }
@@ -978,6 +984,17 @@ void StartTXMotor2(void const * argument)
 void StartRXMotor1(void const * argument)
 {
         /* USER CODE BEGIN StartRXMotor1 */
+
+        uint8_t BUFF_SIZE;
+        uint8_t START_BYTE[2];
+        uint8_t START_SIZE;
+        uint8_t DATA_SIZE;
+        uint8_t CRC_SIZE;
+        uint8_t START_INDEX;
+        uint8_t *EXTRACT_DATA;
+        uint8_t *EXTRACT_CRC;
+        uint32_t CALC_CRC;
+
         struct HeartMessage *pxRxedMessage;
         /* Infinite loop */
         for(;; )
@@ -985,6 +1002,72 @@ void StartRXMotor1(void const * argument)
                 // Receive a message on the created queue. Don't block.
                 xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), 0);
                 ReceiveM2_DMA(RXBufM1, 12);
+
+                switch(pxRxedMessage->ucMessageID) {
+                case KILL:
+                        //__HAL_UART_DISABLE(&huart2);
+                        //__HAL_UART_DISABLE(&huart3);
+                        break;
+                case WRITE:
+                        //Delay 1000
+                        break;
+                case BRIDGE:
+                        //Delay 1000
+                        break;
+                case CURRENT_SET:
+                        break;
+                case CURRENT_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 2;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 10, CRC_SIZE);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 100; } //TODO Set output data
+                        break;
+                case POSITION_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 4;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 12, 2);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 200; } //TODO Set output data
+                        break;
+                case VELOCITY_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 4;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 12, CRC_SIZE);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 100; } //TODO Set output data
+                        break;
+                default:
+                        return 0;
+                };
+
                 //TODO strlen(MotorPacketPTR[pxRxedMessage->ucMessageID])
                 /* Set bit 1 in the event group to note this task has reached the
                         synchronization point.  The other two tasks will set the other two
@@ -1000,6 +1083,17 @@ void StartRXMotor1(void const * argument)
 void StartRXMotor2(void const * argument)
 {
         /* USER CODE BEGIN StartRXMotor2 */
+
+        uint8_t BUFF_SIZE;
+        uint8_t START_BYTE[2];
+        uint8_t START_SIZE;
+        uint8_t DATA_SIZE;
+        uint8_t CRC_SIZE;
+        uint8_t START_INDEX;
+        uint8_t *EXTRACT_DATA;
+        uint8_t *EXTRACT_CRC;
+        uint32_t CALC_CRC;
+
         struct HeartMessage *pxRxedMessage;
         /* Infinite loop */
         for(;; )
@@ -1007,6 +1101,72 @@ void StartRXMotor2(void const * argument)
                 // Receive a message on the created queue. Don't block.
                 xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), 0);
                 ReceiveM2_DMA(RXBufM2, 12);
+
+                switch(pxRxedMessage->ucMessageID) {
+                case KILL:
+                        __HAL_UART_DISABLE(&huart2);
+                        __HAL_UART_DISABLE(&huart3);
+                        break;
+                case WRITE:
+                        //Delay 1000
+                        break;
+                case BRIDGE:
+                        //Delay 1000
+                        break;
+                case CURRENT_SET:
+                        break;
+                case CURRENT_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 2;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 10, CRC_SIZE);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 100; } //TODO Set output data
+                        break;
+                case POSITION_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 4;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 12, 2);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 200; } //TODO Set output data
+                        break;
+                case VELOCITY_DATA:
+                        BUFF_SIZE = 17;
+                        START_BYTE[0] = 0xA5;
+                        START_BYTE[1] = 0xFF;
+                        START_SIZE = 2;
+                        DATA_SIZE = 4;
+                        CRC_SIZE = 2;
+                        START_INDEX = findBytes(RXBufM1, BUFF_SIZE, START_BYTE, START_SIZE, 1);
+                        EXTRACT_DATA = extractBytes(RXBufM1, START_INDEX + 8, DATA_SIZE);
+                        EXTRACT_CRC = extractBytes(RXBufM1, START_INDEX + 12, CRC_SIZE);
+                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+                        EXTRACT_CRC = WORDtoBYTE.WORD;
+                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
+                        if(EXTRACT_CRC==CALC_CRC) {START_INDEX = 100; } //TODO Set output data
+                        break;
+                default:
+                        return 0;
+                };
+
                 //TODO strlen(MotorPacketPTR[pxRxedMessage->ucMessageID])
                 /* Set bit 1 in the event group to note this task has reached the
                         synchronization point.  The other two tasks will set the other two
