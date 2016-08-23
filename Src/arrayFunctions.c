@@ -1,16 +1,10 @@
-/*******************************************************************************
-*Author: Benjamin Scholtz
-*Contact: bscholtz.bds@gmail.com
-*Purpose: Mechatronic Engineering Undergrad Thesis: Baleka - Robotic Hopping Leg
-*Tools: STM32CubeMX, FreeRTOS, HAL
-*******************************************************************************/
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
-#include "arrayFunctions.h"
+#include <arrayFunctions.h>
 
 uint8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t returnindex)
 {
@@ -37,6 +31,24 @@ uint8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, 
     {
         return result;
     }
+}
+
+uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex)
+{
+    uint8_t result = 0;
+
+    uint8_t i;
+    uint8_t z = 0;
+    for(i=0;i<=asize;i++)
+    {
+        if(memcmp(extractBytes(array, i, bsize),bytes,bsize)==0)
+        {
+            returnindex[z] = i;
+            result = 1;
+            z++;
+        }
+    }
+    return result;
 }
 
 uint8_t *extractBytes(uint8_t *array, uint8_t start, uint8_t noBytes)
