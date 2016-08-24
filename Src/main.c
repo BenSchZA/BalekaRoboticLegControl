@@ -151,63 +151,6 @@ void StartRXPCM2(void const * argument);
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 
-//Packet Protocol ############################################################
-//'packet' makes sure compiler won't insert any gaps!
-
-//To PC
-
-struct __attribute__((__packed__)) TXPacketStruct {
-        uint8_t START[2];
-
-        uint8_t LENGTH;
-
-        uint8_t M1C[2];
-        uint8_t M1P[4];
-        uint8_t M1V[4];
-
-        uint8_t M2C[2];
-        uint8_t M2P[4];
-        uint8_t M2V[4];
-
-        uint8_t ACCX[2];
-        uint8_t ACCY[2];
-        uint8_t ACCZ[2];
-        uint8_t GYRX[2];
-        uint8_t GYRY[2];
-        uint8_t GYRZ[2];
-        uint8_t TEMP;
-        uint8_t StatBIT_1 : 1;
-        uint8_t StatBIT_2 : 1;
-        uint8_t StatBIT_3 : 1;
-        uint8_t StatBIT_4 : 1;
-        uint8_t StatBIT_5 : 1;
-        uint8_t StatBIT_6 : 1;
-        uint8_t StatBIT_7 : 1;
-        uint8_t StatBIT_8 : 1;
-
-        uint8_t CRCCheck;
-
-        uint8_t STOP[2];
-};
-
-struct TXPacketStruct PCPacket;
-//Transmit pointer PCPacketPTR with sizeof(PCPacket)
-uint8_t *PCPacketPTR = (uint8_t*)&PCPacket;
-
-
-
-//Example Usage
-
-//PCPacket.ACCX[0] = 0xAA;
-//PCPacket.STOP[0] = 0xAA;
-//PCPacket.STOP[1] = 0xAA;
-//PCPacket.StatBIT_2 = 1;
-//PCPacket.StatBIT_8 = 1;
-//sizeof(PCPacket);
-//PCPacketPTR[n];
-
-
-
 //Heartbeat ##################################################################
 #define TASK_TXM1        ( 1 << 0 )
 #define TASK_TXM2        ( 1 << 1 )
@@ -331,21 +274,6 @@ struct HeartMessage xHeartM2;
 
 SemaphoreHandle_t xSemaphoreM1 = NULL;
 SemaphoreHandle_t xSemaphoreM2 = NULL;
-
-struct __attribute__((__packed__)) CurrentCommandStruct {
-        uint8_t START[2];
-        uint8_t CB;
-        uint8_t INDOFF[2];
-        uint8_t LEN;
-        uint8_t CRC1[2];
-        uint8_t DATA[4];
-        uint8_t CRC2[2];
-};
-
-struct CurrentCommandStruct CurrentCommandM1;
-struct CurrentCommandStruct CurrentCommandM2;
-uint8_t *CurrentCommandM1PTR = (uint8_t*)&CurrentCommandM1;
-uint8_t *CurrentCommandM2PTR = (uint8_t*)&CurrentCommandM2;
 
 //#############################################################################
 
@@ -1057,6 +985,56 @@ void StartTXPC(void const * argument)
 {
   /* USER CODE BEGIN StartTXPC */
 
+	//Packet Protocol ############################################################
+	//'packet' makes sure compiler won't insert any gaps!
+	//To PC
+	struct __attribute__((__packed__)) TXPacketStruct {
+	        uint8_t START[2];
+
+	        uint8_t LENGTH;
+
+	        uint8_t M1C[2];
+	        uint8_t M1P[4];
+	        uint8_t M1V[4];
+
+	        uint8_t M2C[2];
+	        uint8_t M2P[4];
+	        uint8_t M2V[4];
+
+	        uint8_t ACCX[2];
+	        uint8_t ACCY[2];
+	        uint8_t ACCZ[2];
+	        uint8_t GYRX[2];
+	        uint8_t GYRY[2];
+	        uint8_t GYRZ[2];
+	        uint8_t TEMP;
+	        uint8_t StatBIT_1 : 1;
+	        uint8_t StatBIT_2 : 1;
+	        uint8_t StatBIT_3 : 1;
+	        uint8_t StatBIT_4 : 1;
+	        uint8_t StatBIT_5 : 1;
+	        uint8_t StatBIT_6 : 1;
+	        uint8_t StatBIT_7 : 1;
+	        uint8_t StatBIT_8 : 1;
+
+	        uint8_t CRCCheck;
+
+	        uint8_t STOP[2];
+	};
+
+	struct TXPacketStruct PCPacket;
+	//Transmit pointer PCPacketPTR with sizeof(PCPacket)
+	uint8_t *PCPacketPTR = (uint8_t*)&PCPacket;
+
+	//Example Usage
+	//PCPacket.ACCX[0] = 0xAA;
+	//PCPacket.STOP[0] = 0xAA;
+	//PCPacket.STOP[1] = 0xAA;
+	//PCPacket.StatBIT_2 = 1;
+	//PCPacket.StatBIT_8 = 1;
+	//sizeof(PCPacket);
+	//PCPacketPTR[n];
+
         /* Infinite loop */
         for(;; )
         {
@@ -1089,14 +1067,46 @@ void StartRXPC(void const * argument)
 	        uint8_t StatBIT_7 : 1;
 	        uint8_t StatBIT_8 : 1;
 
-	        uint8_t CRCCheck;
+	        uint8_t CRCCheck[2];
 
 	        uint8_t STOP[2];
 	};
 
 	struct RXPacketStruct RXPacket;
-	//Transmit pointer PCPacketPTR with sizeof(PCPacket)
 	uint8_t *RXPacketPTR = (uint8_t*)&RXPacket;
+
+	RXPacket.START[0] = 0x7E;
+	RXPacket.START[1] = 0x5B;
+
+	RXPacket.STOP[0] = 0x5B;
+	RXPacket.STOP[1] = 0x7E;
+
+	uint8_t START_INDEX = 0;
+	uint8_t START_SIZE = sizeof(RXPacket.START);
+	uint8_t STOP_INDEX = 0;
+	uint8_t STOP_SIZE = sizeof(RXPacket.STOP);
+	uint8_t LENGTH_SIZE = sizeof(RXPacket.LENGTH);
+	uint8_t DATA_SIZE;
+	uint8_t *EXTRACT_DATA;
+	uint8_t *EXTRACT_CRC;
+	uint8_t CRC_SIZE = sizeof(RXPacket.CRCCheck);
+	uint32_t CALC_CRC;
+
+
+	struct __attribute__((__packed__)) CurrentCommandStruct {
+	        uint8_t START[2];
+	        uint8_t CB;
+	        uint8_t INDOFF[2];
+	        uint8_t LEN;
+	        uint8_t CRC1[2];
+	        uint8_t DATA[4];
+	        uint8_t CRC2[2];
+	};
+
+	struct CurrentCommandStruct CurrentCommandM1;
+	struct CurrentCommandStruct CurrentCommandM2;
+	uint8_t *CurrentCommandM1PTR = (uint8_t*)&CurrentCommandM1;
+	uint8_t *CurrentCommandM2PTR = (uint8_t*)&CurrentCommandM2;
 
         CurrentCommandM1.START[0] = 0xA5;
         CurrentCommandM1.START[1] = 0x3F;
@@ -1122,56 +1132,61 @@ void StartRXPC(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
-        float currentCommand = 0;
-        uint32_t CALC_CRC;
+        //float currentCommand = 0;
 
         uint8_t RXBufPC[20];
-
-        int i = 0;
 
         /* Infinite loop */
         for(;; )
         {
-        		i++;
-        		if(i>100){
-                currentCommand += 0.1;
-                i=0;
-        		}
 
         		HAL_UART_Receive_DMA(&huart1, RXBufPC, 20);
         		while(huart1.RxState != HAL_UART_STATE_READY);
 
+        		findBytes(RXBufPC, 20, RXPacket.START, 2, START_INDEX);
+        		findBytes(RXBufPC, 20, RXPacket.STOP, 2, STOP_INDEX);
+        		DATA_SIZE = extractBytes(RXBufPC, START_INDEX + 2, 1);
+        		EXTRACT_DATA = extractBytes(RXBufPC, START_INDEX + START_SIZE + LENGTH_SIZE, DATA_SIZE);
+        		EXTRACT_CRC = extractBytes(RXBufPC, START_INDEX + START_SIZE + LENGTH_SIZE + DATA_SIZE, CRC_SIZE);
+        		WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
+        		WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
+        		EXTRACT_CRC = WORDtoBYTE.WORD;
+        		CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 0);
+
+        		if(EXTRACT_CRC==CALC_CRC){
+        			memcpy(RXPacketPTR, EXTRACT_DATA, DATA_SIZE);
+        		}
+
                 xSemaphoreTake( TXMotorCurrentHandle, portMAX_DELAY );
 
                 ////////////////////////////////////////////////////////////////
-                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
-                CurrentCommandM1.DATA[0] = WORDtoBYTE.BYTE[0];
-                CurrentCommandM1.DATA[1] = WORDtoBYTE.BYTE[1];
-                CurrentCommandM1.DATA[2] = WORDtoBYTE.BYTE[2];
-                CurrentCommandM1.DATA[3] = WORDtoBYTE.BYTE[3];
+//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
+//                CurrentCommandM1.DATA[0] = WORDtoBYTE.BYTE[0];
+//                CurrentCommandM1.DATA[1] = WORDtoBYTE.BYTE[1];
+//                CurrentCommandM1.DATA[2] = WORDtoBYTE.BYTE[2];
+//                CurrentCommandM1.DATA[3] = WORDtoBYTE.BYTE[3];
 
-                CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                CALC_CRC = crcCalc(RXPacket.M1C, 0, 4, 1);
                 WORDtoBYTE.HALFWORD = CALC_CRC;
 
                 CurrentCommandM1.CRC2[0] = WORDtoBYTE.BYTE[1];
                 CurrentCommandM1.CRC2[1] = WORDtoBYTE.BYTE[0];
                 ////////////////////////////////////////////////////////////////
-                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
-                CurrentCommandM2.DATA[0] = WORDtoBYTE.BYTE[0];
-                CurrentCommandM2.DATA[1] = WORDtoBYTE.BYTE[1];
-                CurrentCommandM2.DATA[2] = WORDtoBYTE.BYTE[2];
-                CurrentCommandM2.DATA[3] = WORDtoBYTE.BYTE[3];
+//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
+//                CurrentCommandM2.DATA[0] = WORDtoBYTE.BYTE[0];
+//                CurrentCommandM2.DATA[1] = WORDtoBYTE.BYTE[1];
+//                CurrentCommandM2.DATA[2] = WORDtoBYTE.BYTE[2];
+//                CurrentCommandM2.DATA[3] = WORDtoBYTE.BYTE[3];
 
-                CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                CALC_CRC = crcCalc(RXPacket.M1C, 0, 4, 1);
                 WORDtoBYTE.HALFWORD = CALC_CRC;
 
                 CurrentCommandM2.CRC2[0] = WORDtoBYTE.BYTE[1];
                 CurrentCommandM2.CRC2[1] = WORDtoBYTE.BYTE[0];
                 ////////////////////////////////////////////////////////////////
 
-                if (currentCommand > 1.5) {
-                        currentCommand = 0;
-                }
 
                 TransmitM1_DMA(CurrentCommandM1PTR, sizeof(CurrentCommandM1));
                 while(huart2.gState != HAL_UART_STATE_READY);
@@ -1420,7 +1435,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M1C, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) {}
                                         INCOMPLETE = 0;
                                         break;
                                 case 0b1111: //Position_Data
@@ -1432,7 +1447,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M1P, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) {}
                                         INCOMPLETE = 0;
                                         break;
                                 case 0b0101: //Velocity_Data
@@ -1444,7 +1459,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M1V, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) {}
                                         INCOMPLETE = 0;
                                         break;
                                 default:
@@ -1564,7 +1579,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M2C, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) { }
                                         INCOMPLETE = 0;
                                         break;
                                 case 0b0101: //Position_Data
@@ -1576,7 +1591,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M2P, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) { }
                                         INCOMPLETE = 0;
                                         break;
                                 case 0b1111: //Velocity_Data
@@ -1588,7 +1603,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
                                         EXTRACT_CRC = WORDtoBYTE.WORD;
                                         CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {memcpy((void*)PCPacket.M2V, (void*)EXTRACT_DATA, DATA_SIZE); }
+                                        if(EXTRACT_CRC==CALC_CRC) { }
                                         INCOMPLETE = 0;
                                         break;
                                 default:
