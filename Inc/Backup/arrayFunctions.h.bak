@@ -8,9 +8,9 @@ uint8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, 
 
 uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex);
 
-uint8_t *extractBytes(uint8_t *array, uint8_t start, uint8_t length);
-//Use pointer to extract output: uint8_t *extraction=extractBytes(...);
-//Remeber to free(extraction);
+void extractBytes(uint8_t *output, uint8_t *array, uint8_t start, uint8_t noBytes);
+// //Use pointer to extract output: uint8_t *extraction=extractBytes(...);
+// //Remeber to free(extraction);
 
 uint8_t *appendBytes(uint8_t *array, uint8_t asize, uint8_t index, uint8_t *bytes, uint8_t start, uint8_t noBytes);
 //Appends bytes to array, starting from index, selects noBytes number of bytes from bytes from start....?! Try it.

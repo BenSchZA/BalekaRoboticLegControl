@@ -127,6 +127,11 @@
 			<location>PARENT-2-PROJECT_LOC/Src/arrayFunctions.c</location>
 		</link>
 		<link>
+			<name>Application/User/freertos.c</name>
+			<type>1</type>
+			<location>PARENT-2-PROJECT_LOC/Src/freertos.c</location>
+		</link>
+		<link>
 			<name>Application/User/main.c</name>
 			<type>1</type>
 			<location>PARENT-2-PROJECT_LOC/Src/main.c</location>

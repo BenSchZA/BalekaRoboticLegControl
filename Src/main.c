@@ -58,21 +58,15 @@
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
-TIM_HandleTypeDef htim5;
-
-UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
-UART_HandleTypeDef huart6;
-DMA_HandleTypeDef hdma_usart1_rx;
-DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_uart4_rx;
+DMA_HandleTypeDef hdma_uart4_tx;
 DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
-DMA_HandleTypeDef hdma_usart6_rx;
 
 osThreadId defaultTaskHandle;
 osThreadId TXPCHandle;
@@ -82,8 +76,6 @@ osThreadId TXMotor1Handle;
 osThreadId TXMotor2Handle;
 osThreadId RXMotor1Handle;
 osThreadId RXMotor2Handle;
-osThreadId RXPCM1Handle;
-osThreadId RXPCM2Handle;
 osMessageQId ProcessQM1Handle;
 osMessageQId ProcessQM2Handle;
 osMessageQId TransmitQHandle;
@@ -99,12 +91,9 @@ osSemaphoreId TXMotorCurrentHandle;
 /* Private variables ---------------------------------------------------------*/
 uint8_t Ts = 5; //Sampling time in ms
 
-//PC Buffer
-
-//Motor Buffer
-
-uint8_t RXBufM1[20];
-uint8_t RXBufM2[20];
+uint8_t RXBufPC[34];
+uint8_t RXBufM1[50];
+uint8_t RXBufM2[50];
 
 /* WHAT ARE ALL THE USARTS AND TIMERS USED FOR AND WHICH PINS DO THEY USE?
  *
@@ -128,11 +117,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
-static void MX_USART6_UART_Init(void);
-static void MX_USART1_UART_Init(void);
-static void MX_TIM2_Init(void);
-static void MX_TIM5_Init(void);
-static void MX_TIM3_Init(void);
+static void MX_UART4_Init(void);
 void StartDefaultTask(void const * argument);
 void StartTXPC(void const * argument);
 void StartRXPC(void const * argument);
@@ -141,8 +126,6 @@ void StartTXMotor1(void const * argument);
 void StartTXMotor2(void const * argument);
 void StartRXMotor1(void const * argument);
 void StartRXMotor2(void const * argument);
-void StartRXPCM1(void const * argument);
-void StartRXPCM2(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -289,7 +272,7 @@ void ReceiveM1_DMA(uint8_t *data, uint8_t size);
 void TransmitM2_DMA(uint8_t *data, uint8_t size);
 void ReceiveM2_DMA(uint8_t *data, uint8_t size);
 
-void SetupDMA(UART_HandleTypeDef *huart);
+void SetupCircularBuffers(void);
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
 
 uint8_t count;
@@ -320,17 +303,14 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
-  MX_USART6_UART_Init();
-  MX_USART1_UART_Init();
-  MX_TIM2_Init();
-  MX_TIM5_Init();
-  MX_TIM3_Init();
+  MX_UART4_Init();
 
   /* USER CODE BEGIN 2 */
         initCRC(0); //iNemo CRC False
         initCRC(1); //Driver CRC XModem
         SetupArrays();
         SetupMotors();
+        SetupCircularBuffers();
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -360,7 +340,7 @@ int main(void)
   TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
   /* definition and creation of RXPC */
-  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 128);
+  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 300);
   RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
   /* definition and creation of Heartbeat */
@@ -382,14 +362,6 @@ int main(void)
   /* definition and creation of RXMotor2 */
   osThreadDef(RXMotor2, StartRXMotor2, osPriorityHigh, 0, 128);
   RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
-
-  /* definition and creation of RXPCM1 */
-  osThreadDef(RXPCM1, StartRXPCM1, osPriorityRealtime, 0, 128);
-  RXPCM1Handle = osThreadCreate(osThread(RXPCM1), NULL);
-
-  /* definition and creation of RXPCM2 */
-  osThreadDef(RXPCM2, StartRXPCM2, osPriorityRealtime, 0, 128);
-  RXPCM2Handle = osThreadCreate(osThread(RXPCM2), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
@@ -500,160 +472,19 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
-/* TIM2 init function */
-static void MX_TIM2_Init(void)
+/* UART4 init function */
+static void MX_UART4_Init(void)
 {
 
-  TIM_ClockConfigTypeDef sClockSourceConfig;
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_IC_InitTypeDef sConfigIC;
-
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 42000;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 5;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-}
-
-/* TIM3 init function */
-static void MX_TIM3_Init(void)
-{
-
-  TIM_ClockConfigTypeDef sClockSourceConfig;
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_IC_InitTypeDef sConfigIC;
-
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 42000;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 1;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_TIM_IC_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 5;
-  if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-}
-
-/* TIM5 init function */
-static void MX_TIM5_Init(void)
-{
-
-  TIM_ClockConfigTypeDef sClockSourceConfig;
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_IC_InitTypeDef sConfigIC;
-
-  htim5.Instance = TIM5;
-  htim5.Init.Prescaler = 42000;
-  htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 1;
-  htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim5, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_TIM_IC_Init(&htim5) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 5;
-  if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-}
-
-/* USART1 init function */
-static void MX_USART1_UART_Init(void)
-{
-
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 115200;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -698,56 +529,33 @@ static void MX_USART3_UART_Init(void)
 
 }
 
-/* USART6 init function */
-static void MX_USART6_UART_Init(void)
-{
-
-  huart6.Instance = USART6;
-  huart6.Init.BaudRate = 115200;
-  huart6.Init.WordLength = UART_WORDLENGTH_8B;
-  huart6.Init.StopBits = UART_STOPBITS_1;
-  huart6.Init.Parity = UART_PARITY_NONE;
-  huart6.Init.Mode = UART_MODE_TX_RX;
-  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-}
-
 /** 
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void) 
 {
   /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
   /* DMA1_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+  /* DMA1_Stream4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
   /* DMA1_Stream5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
   /* DMA1_Stream6_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
-  /* DMA2_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-  /* DMA2_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-  /* DMA2_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
 
 }
 
@@ -769,10 +577,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
+  /*Configure GPIO pins : PB8 PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -867,9 +675,19 @@ void ReceiveM2_DMA(uint8_t *data, uint8_t size){
         //HAL_UART_Receive(&huart3, data, size, 5);
 }
 
+void SetupCircularBuffers(void){
+
+	HAL_UART_Receive_DMA(&huart2, RXBufM1, 50);
+	HAL_Delay(100);
+	HAL_UART_Receive_DMA(&huart3, RXBufM2, 50);
+	HAL_Delay(100);
+
+
+}
+
 //Select Call-backs functions called after Transfer complete
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
-
+	__NOP();
 }
 
 //http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
@@ -911,58 +729,46 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
 //	}
 //}
 
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-//if(huart->Instance == USART2){
-//	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+//        if(huart->Instance == USART1) {
+//                BaseType_t xYieldRequired;
 //
-//	/* Unblock the task by releasing the semaphore. */
-//	        xSemaphoreGiveFromISR( RXM1Handle, &xHigherPriorityTaskWoken );
+//                // Resume the suspended task.
+//                xYieldRequired = xTaskResumeFromISR( RXPCHandle );
 //
-//	        /* Writing to the queue caused a task to unblock and the unblocked task
-//		            has a priority higher than or equal to the priority of the currently
-//		            executing task (the task this interrupt interrupted).  Perform a
-//		            context switch so this interrupt returns directly to the unblocked
-//		            task. */
-//		portEND_SWITCHING_ISR(xHigherPriorityTaskWoken); /* or portEND_SWITCHING_ISR() depending on the
-//		            port.*/
-//}
+//                if( xYieldRequired == pdTRUE )
+//                {
+//                        portEND_SWITCHING_ISR(); /* or portEND_SWITCHING_ISR() depending on the
+//                                                                            port.*/
+//                }
+//        }
 //
-//if(huart->Instance == USART3){
-//	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//        if(huart->Instance == USART2) {
+//                BaseType_t xYieldRequired;
 //
-//	/* Unblock the task by releasing the semaphore. */
-//	        xSemaphoreGiveFromISR( RXM2Handle, &xHigherPriorityTaskWoken );
+//                // Resume the suspended task.
+//                xYieldRequired = xTaskResumeFromISR( RXMotor1Handle );
 //
-//	        /* Writing to the queue caused a task to unblock and the unblocked task
-//		            has a priority higher than or equal to the priority of the currently
-//		            executing task (the task this interrupt interrupted).  Perform a
-//		            context switch so this interrupt returns directly to the unblocked
-//		            task. */
-//		portEND_SWITCHING_ISR(xHigherPriorityTaskWoken); /* or portEND_SWITCHING_ISR() depending on the
-//		            port.*/
-//}
-//}
-
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim){
-			if (htim->Instance==TIM3) //PC
-	        {
-	                HAL_TIM_Base_Start_IT(htim);
-	                __HAL_TIM_SetCounter(htim, 0); //reset counter after input capture interrupt occurs
-	        }
-
-        if (htim->Instance==TIM5) //M1
-        {
-                HAL_TIM_Base_Start_IT(htim);
-                __HAL_TIM_SetCounter(htim, 0); //reset counter after input capture interrupt occurs
-        }
-
-        if (htim->Instance==TIM2) //M2
-        {
-                HAL_TIM_Base_Start_IT(htim);
-                __HAL_TIM_SetCounter(htim, 0); //reset counter after input capture interrupt occurs
-        }
+//                if( xYieldRequired == pdTRUE )
+//                {
+//                        portEND_SWITCHING_ISR(); /* or portEND_SWITCHING_ISR() depending on the
+//                                                                            port.*/
+//                }
+//        }
+//
+//        if(huart->Instance == USART3) {
+//                BaseType_t xYieldRequired;
+//
+//                // Resume the suspended task.
+//                xYieldRequired = xTaskResumeFromISR( RXMotor2Handle );
+//
+//                if( xYieldRequired == pdTRUE )
+//                {
+//                        portEND_SWITCHING_ISR(); /* or portEND_SWITCHING_ISR() depending on the
+//                                                                            port.*/
+//                }
+//        }
 }
-
 
 /* USER CODE END 4 */
 
@@ -985,61 +791,76 @@ void StartTXPC(void const * argument)
 {
   /* USER CODE BEGIN StartTXPC */
 
-	//Packet Protocol ############################################################
-	//'packet' makes sure compiler won't insert any gaps!
-	//To PC
-	struct __attribute__((__packed__)) TXPacketStruct {
-	        uint8_t START[2];
+        //Packet Protocol ############################################################
+        //'packet' makes sure compiler won't insert any gaps!
+        //To PC
+        struct __attribute__((__packed__)) TXPacketStruct {
+                uint8_t START[2];
 
-	        uint8_t LENGTH;
+                uint8_t LENGTH;
 
-	        uint8_t M1C[2];
-	        uint8_t M1P[4];
-	        uint8_t M1V[4];
+                uint8_t M1C[2];
+                uint8_t M1P[4];
+                uint8_t M1V[4];
 
-	        uint8_t M2C[2];
-	        uint8_t M2P[4];
-	        uint8_t M2V[4];
+                uint8_t M2C[2];
+                uint8_t M2P[4];
+                uint8_t M2V[4];
 
-	        uint8_t ACCX[2];
-	        uint8_t ACCY[2];
-	        uint8_t ACCZ[2];
-	        uint8_t GYRX[2];
-	        uint8_t GYRY[2];
-	        uint8_t GYRZ[2];
-	        uint8_t TEMP;
-	        uint8_t StatBIT_1 : 1;
-	        uint8_t StatBIT_2 : 1;
-	        uint8_t StatBIT_3 : 1;
-	        uint8_t StatBIT_4 : 1;
-	        uint8_t StatBIT_5 : 1;
-	        uint8_t StatBIT_6 : 1;
-	        uint8_t StatBIT_7 : 1;
-	        uint8_t StatBIT_8 : 1;
+                uint8_t ACCX[2];
+                uint8_t ACCY[2];
+                uint8_t ACCZ[2];
+                uint8_t GYRX[2];
+                uint8_t GYRY[2];
+                uint8_t GYRZ[2];
+                uint8_t TEMP;
+                uint8_t StatBIT_1 : 1;
+                uint8_t StatBIT_2 : 1;
+                uint8_t StatBIT_3 : 1;
+                uint8_t StatBIT_4 : 1;
+                uint8_t StatBIT_5 : 1;
+                uint8_t StatBIT_6 : 1;
+                uint8_t StatBIT_7 : 1;
+                uint8_t StatBIT_8 : 1;
 
-	        uint8_t CRCCheck;
+                uint8_t CRCCheck;
 
-	        uint8_t STOP[2];
-	};
+                uint8_t STOP[2];
+        };
 
-	struct TXPacketStruct PCPacket;
-	//Transmit pointer PCPacketPTR with sizeof(PCPacket)
-	uint8_t *PCPacketPTR = (uint8_t*)&PCPacket;
+        struct TXPacketStruct PCPacket;
+        //Transmit pointer PCPacketPTR with sizeof(PCPacket)
+        uint8_t *PCPacketPTR = (uint8_t*)&PCPacket;
 
-	//Example Usage
-	//PCPacket.ACCX[0] = 0xAA;
-	//PCPacket.STOP[0] = 0xAA;
-	//PCPacket.STOP[1] = 0xAA;
-	//PCPacket.StatBIT_2 = 1;
-	//PCPacket.StatBIT_8 = 1;
-	//sizeof(PCPacket);
-	//PCPacketPTR[n];
+        PCPacket.START[0] = 0x7E;
+        PCPacket.START[1] = 0x5B;
+
+        PCPacket.STOP[0] = 0x5B;
+        PCPacket.STOP[1] = 0x7E;
+
+        //Example Usage
+        //PCPacket.ACCX[0] = 0xAA;
+        //PCPacket.STOP[0] = 0xAA;
+        //PCPacket.STOP[1] = 0xAA;
+        //PCPacket.StatBIT_2 = 1;
+        //PCPacket.StatBIT_8 = 1;
+        //sizeof(PCPacket);
+        //PCPacketPTR[n];
+
+        uint8_t *pxRxedM1Message;
+        uint8_t *pxRxedM2Message;
 
         /* Infinite loop */
         for(;; )
         {
-                HAL_UART_Transmit_DMA(&huart1, PCPacketPTR, sizeof(PCPacket));
-                osDelay(5);
+        		vTaskSuspend(NULL);
+                if(xQueueReceive( ProcessQM1Handle, &( pxRxedM1Message ), portMAX_DELAY ) && xQueueReceive( ProcessQM2Handle, &( pxRxedM2Message ), portMAX_DELAY )){
+                  memcpy(PCPacket.M1C, pxRxedM1Message, 10);
+                  memcpy(PCPacket.M2C, pxRxedM2Message, 10);
+                  //PCPacket.CRCCheck = ; //TODO
+                  HAL_UART_Transmit_DMA(&huart4, PCPacketPTR, sizeof(PCPacket)); //TODO
+                  while(huart4.gState != HAL_UART_STATE_READY);
+                }
         }
   /* USER CODE END StartTXPC */
 }
@@ -1049,64 +870,64 @@ void StartRXPC(void const * argument)
 {
   /* USER CODE BEGIN StartRXPC */
 
-	//From PC
-	struct __attribute__((__packed__)) RXPacketStruct {
-	        uint8_t START[2];
+        //From PC
+        struct __attribute__((__packed__)) RXPacketStruct {
+                uint8_t START[2];
 
-	        uint8_t LENGTH;
+                uint8_t LENGTH;
 
-	        uint8_t M1C[4];
-	        uint8_t M2C[4];
+                uint8_t M1C[4];
+                uint8_t M2C[4];
 
-	        uint8_t StatBIT_1 : 1;
-	        uint8_t StatBIT_2 : 1;
-	        uint8_t StatBIT_3 : 1;
-	        uint8_t StatBIT_4 : 1;
-	        uint8_t StatBIT_5 : 1;
-	        uint8_t StatBIT_6 : 1;
-	        uint8_t StatBIT_7 : 1;
-	        uint8_t StatBIT_8 : 1;
+                uint8_t StatBIT_1 : 1;
+                uint8_t StatBIT_2 : 1;
+                uint8_t StatBIT_3 : 1;
+                uint8_t StatBIT_4 : 1;
+                uint8_t StatBIT_5 : 1;
+                uint8_t StatBIT_6 : 1;
+                uint8_t StatBIT_7 : 1;
+                uint8_t StatBIT_8 : 1;
 
-	        uint8_t CRCCheck[2];
+                uint8_t CRCCheck[2];
 
-	        uint8_t STOP[2];
-	};
+                uint8_t STOP[2];
+        };
 
-	struct RXPacketStruct RXPacket;
-	uint8_t *RXPacketPTR = (uint8_t*)&RXPacket;
+        struct RXPacketStruct RXPacket;
+        uint8_t *RXPacketPTR = (uint8_t*)&RXPacket;
 
-	RXPacket.START[0] = 0x7E;
-	RXPacket.START[1] = 0x5B;
+        RXPacket.START[0] = 0x7E;
+        RXPacket.START[1] = 0x5B;
 
-	RXPacket.STOP[0] = 0x5B;
-	RXPacket.STOP[1] = 0x7E;
+        RXPacket.STOP[0] = 0x5D;
+        RXPacket.STOP[1] = 0x7E;
 
-	uint8_t START_INDEX = 0;
-	uint8_t START_SIZE = sizeof(RXPacket.START);
-	uint8_t STOP_INDEX = 0;
-	uint8_t STOP_SIZE = sizeof(RXPacket.STOP);
-	uint8_t LENGTH_SIZE = sizeof(RXPacket.LENGTH);
-	uint8_t DATA_SIZE;
-	uint8_t *EXTRACT_DATA;
-	uint8_t *EXTRACT_CRC;
-	uint8_t CRC_SIZE = sizeof(RXPacket.CRCCheck);
-	uint32_t CALC_CRC;
+        uint8_t START_INDEX = 0;
+        uint8_t START_SIZE = sizeof(RXPacket.START);
+        uint8_t STOP_INDEX = 0;
+        uint8_t STOP_SIZE = sizeof(RXPacket.STOP);
+        uint8_t LENGTH_SIZE = sizeof(RXPacket.LENGTH);
+        uint8_t *DATA_SIZE;
+        uint8_t *EXTRACT_DATA;
+        uint8_t *EXTRACT_CRC;
+        uint8_t CRC_SIZE = sizeof(RXPacket.CRCCheck);
+        uint32_t CALC_CRC;
 
 
-	struct __attribute__((__packed__)) CurrentCommandStruct {
-	        uint8_t START[2];
-	        uint8_t CB;
-	        uint8_t INDOFF[2];
-	        uint8_t LEN;
-	        uint8_t CRC1[2];
-	        uint8_t DATA[4];
-	        uint8_t CRC2[2];
-	};
+        struct __attribute__((__packed__)) CurrentCommandStruct {
+                uint8_t START[2];
+                uint8_t CB;
+                uint8_t INDOFF[2];
+                uint8_t LEN;
+                uint8_t CRC1[2];
+                uint8_t DATA[4];
+                uint8_t CRC2[2];
+        };
 
-	struct CurrentCommandStruct CurrentCommandM1;
-	struct CurrentCommandStruct CurrentCommandM2;
-	uint8_t *CurrentCommandM1PTR = (uint8_t*)&CurrentCommandM1;
-	uint8_t *CurrentCommandM2PTR = (uint8_t*)&CurrentCommandM2;
+        struct CurrentCommandStruct CurrentCommandM1;
+        struct CurrentCommandStruct CurrentCommandM2;
+        uint8_t *CurrentCommandM1PTR = (uint8_t*)&CurrentCommandM1;
+        uint8_t *CurrentCommandM2PTR = (uint8_t*)&CurrentCommandM2;
 
         CurrentCommandM1.START[0] = 0xA5;
         CurrentCommandM1.START[1] = 0x3F;
@@ -1132,66 +953,64 @@ void StartRXPC(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
+        uint8_t BUFFER_TO_CHECK[34];
         //float currentCommand = 0;
 
-        uint8_t RXBufPC[20];
+        uint8_t temp[16] = {0x7E, 0x5B, 0x09, 0x48, 0x01, 0x00, 0x00, 0x48, 0x01, 0x00, 0x00, 0x00, 0x4C, 0x76, 0x5D, 0x7E};
 
+    	HAL_UART_Receive_DMA(&huart4, RXBufPC, 34);
+    	HAL_Delay(100);
         /* Infinite loop */
         for(;; )
         {
+        		HAL_UART_Transmit_DMA(&huart4, temp, 16);
+        		while(huart4.gState != HAL_UART_STATE_READY);
+            	//memcpy(RXBufPC, temp, 20);
+        		memcpy(BUFFER_TO_CHECK, RXBufPC, 34);
+                START_INDEX = findBytes(BUFFER_TO_CHECK, 34, RXPacket.START, 2, 1);
+                memcpy(RXPacketPTR, &BUFFER_TO_CHECK[START_INDEX], 16);
 
-        		HAL_UART_Receive_DMA(&huart1, RXBufPC, 20);
-        		while(huart1.RxState != HAL_UART_STATE_READY);
-
-        		findBytes(RXBufPC, 20, RXPacket.START, 2, START_INDEX);
-        		findBytes(RXBufPC, 20, RXPacket.STOP, 2, STOP_INDEX);
-        		DATA_SIZE = extractBytes(RXBufPC, START_INDEX + 2, 1);
-        		EXTRACT_DATA = extractBytes(RXBufPC, START_INDEX + START_SIZE + LENGTH_SIZE, DATA_SIZE);
-        		EXTRACT_CRC = extractBytes(RXBufPC, START_INDEX + START_SIZE + LENGTH_SIZE + DATA_SIZE, CRC_SIZE);
-        		WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-        		WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-        		EXTRACT_CRC = WORDtoBYTE.WORD;
-        		CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 0);
-
-        		if(EXTRACT_CRC==CALC_CRC){
-        			memcpy(RXPacketPTR, EXTRACT_DATA, DATA_SIZE);
-        		}
+                WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
+                WORDtoBYTE.BYTE[0] = RXPacket.CRCCheck[1];
+                CALC_CRC = crcCalc(RXPacket.M1C, 0, 9, 0);
 
                 xSemaphoreTake( TXMotorCurrentHandle, portMAX_DELAY );
 
-                ////////////////////////////////////////////////////////////////
-//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
-//                CurrentCommandM1.DATA[0] = WORDtoBYTE.BYTE[0];
-//                CurrentCommandM1.DATA[1] = WORDtoBYTE.BYTE[1];
-//                CurrentCommandM1.DATA[2] = WORDtoBYTE.BYTE[2];
-//                CurrentCommandM1.DATA[3] = WORDtoBYTE.BYTE[3];
+                if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                	 ////////////////////////////////////////////////////////////////
+                	//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
+                	                CurrentCommandM1.DATA[0] = RXPacket.M1C[0];
+                	                CurrentCommandM1.DATA[1] = RXPacket.M1C[1];
+                	                CurrentCommandM1.DATA[2] = RXPacket.M1C[2];
+                	                CurrentCommandM1.DATA[3] = RXPacket.M1C[3];
 
-                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
-                CALC_CRC = crcCalc(RXPacket.M1C, 0, 4, 1);
-                WORDtoBYTE.HALFWORD = CALC_CRC;
+                	                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                	                CALC_CRC = crcCalc(RXPacket.M1C, 0, 4, 1);
+                	                WORDtoBYTE.HALFWORD = CALC_CRC;
 
-                CurrentCommandM1.CRC2[0] = WORDtoBYTE.BYTE[1];
-                CurrentCommandM1.CRC2[1] = WORDtoBYTE.BYTE[0];
-                ////////////////////////////////////////////////////////////////
-//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
-//                CurrentCommandM2.DATA[0] = WORDtoBYTE.BYTE[0];
-//                CurrentCommandM2.DATA[1] = WORDtoBYTE.BYTE[1];
-//                CurrentCommandM2.DATA[2] = WORDtoBYTE.BYTE[2];
-//                CurrentCommandM2.DATA[3] = WORDtoBYTE.BYTE[3];
+                	                CurrentCommandM1.CRC2[0] = WORDtoBYTE.BYTE[1];
+                	                CurrentCommandM1.CRC2[1] = WORDtoBYTE.BYTE[0];
+                	                ////////////////////////////////////////////////////////////////
+                	//                WORDtoBYTE.WORD = (int)(currentCommand*pow(2,15))/15 + 1;
+                	                CurrentCommandM2.DATA[0] = RXPacket.M2C[0];
+                	                CurrentCommandM2.DATA[1] = RXPacket.M2C[1];
+                	                CurrentCommandM2.DATA[2] = RXPacket.M2C[2];
+                	                CurrentCommandM2.DATA[3] = RXPacket.M2C[3];
 
-                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
-                CALC_CRC = crcCalc(RXPacket.M1C, 0, 4, 1);
-                WORDtoBYTE.HALFWORD = CALC_CRC;
+                	                //CALC_CRC = crcCalc(WORDtoBYTE.BYTE, 0, 4, 1);
+                	                CALC_CRC = crcCalc(RXPacket.M2C, 0, 4, 1);
+                	                WORDtoBYTE.HALFWORD = CALC_CRC;
 
-                CurrentCommandM2.CRC2[0] = WORDtoBYTE.BYTE[1];
-                CurrentCommandM2.CRC2[1] = WORDtoBYTE.BYTE[0];
-                ////////////////////////////////////////////////////////////////
+                	                CurrentCommandM2.CRC2[0] = WORDtoBYTE.BYTE[1];
+                	                CurrentCommandM2.CRC2[1] = WORDtoBYTE.BYTE[0];
+                	                ////////////////////////////////////////////////////////////////
 
+                	                TransmitM1_DMA(CurrentCommandM1PTR, sizeof(CurrentCommandM1));
+                	                while(huart2.gState != HAL_UART_STATE_READY);
+                	                TransmitM2_DMA(CurrentCommandM2PTR, sizeof(CurrentCommandM2));
+                	                while(huart3.gState != HAL_UART_STATE_READY);
+                }
 
-                TransmitM1_DMA(CurrentCommandM1PTR, sizeof(CurrentCommandM1));
-                while(huart2.gState != HAL_UART_STATE_READY);
-                TransmitM2_DMA(CurrentCommandM2PTR, sizeof(CurrentCommandM2));
-                while(huart3.gState != HAL_UART_STATE_READY);
 
         }
   /* USER CODE END StartRXPC */
@@ -1245,28 +1064,18 @@ void StartHeartbeat(void const * argument)
 
         uint8_t ID = 4;
 
-        HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
-        HAL_TIM_Base_Start_IT(&htim3);
-
-        HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
-        HAL_TIM_Base_Start_IT(&htim2);
-
-        HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_2);
-        HAL_TIM_Base_Start_IT(&htim5);
-
         /* Infinite loop */
         for(;; )
         {
-
                 /* Perform task functionality here. */
                 pxMessage = &xHeartM1;
                 pxMessage->ucMessageID = ID;
-                pxMessage->ucData = &MotorPacket;
+                //pxMessage->ucData = &MotorPacket;
                 xQueueOverwrite( TransmitM1QHandle, ( void * ) &pxMessage);
 
                 pxMessage = &xHeartM2;
                 pxMessage->ucMessageID = ID;
-                pxMessage->ucData = &MotorPacket;
+                //pxMessage->ucData = &MotorPacket;
                 xQueueOverwrite( TransmitM2QHandle, ( void * ) &pxMessage);
 
                 //Resume other tasks
@@ -1291,8 +1100,8 @@ void StartHeartbeat(void const * argument)
                         ID++;
                         if(ID==7)
                         {
-                        	xSemaphoreGive( TXMotorCurrentHandle );
-                        	ID = 4; //Start with motor current read
+                                xSemaphoreGive( TXMotorCurrentHandle );
+                                ID = 4; //Start with motor current read
                                 osDelay(5);
                         }
                 }
@@ -1313,6 +1122,15 @@ void StartTXMotor1(void const * argument)
                 xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), 5);
                 //&(pxRxedMessage->ucData)[(pxRxedMessage->ucMessageID)*14]
                 TransmitM1_DMA(MotorPacketArray[pxRxedMessage->ucMessageID], MotorPacketSizePTR[pxRxedMessage->ucMessageID]);
+
+                if(pxRxedMessage->ucMessageID == ID_CURRENT_DATA) {
+                        //ReceiveM1_DMA(RXBufM1, 50);
+                }
+                if(pxRxedMessage->ucMessageID == ID_VELOCITY_DATA) {
+                		//osDelay(1);
+                        //HAL_DMA_Abort(&hdma_usart2_rx);
+                        vTaskResume( RXMotor1Handle );
+                }
 
                 while(huart2.gState != HAL_UART_STATE_READY);
 
@@ -1338,6 +1156,15 @@ void StartTXMotor2(void const * argument)
                 xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), 5);
                 TransmitM2_DMA(MotorPacketArray[pxRxedMessage->ucMessageID], MotorPacketSizePTR[pxRxedMessage->ucMessageID]);
 
+                if(pxRxedMessage->ucMessageID == ID_CURRENT_DATA) {
+                        //ReceiveM2_DMA(RXBufM2, 50);
+                }
+                if(pxRxedMessage->ucMessageID == ID_VELOCITY_DATA) {
+                		//osDelay(1);
+                        //HAL_DMA_Abort(&hdma_usart3_rx);
+                        vTaskResume( RXMotor2Handle );
+                }
+
                 while(huart3.gState != HAL_UART_STATE_READY);
 
                 /* Set bit 1 in the event group to note this task has reached the
@@ -1355,22 +1182,18 @@ void StartRXMotor1(void const * argument)
 {
   /* USER CODE BEGIN StartRXMotor1 */
         uint8_t OPCODE;
-        uint8_t *BUFFER_TO_CHECK;
+        uint8_t BUFFER_TO_CHECK[50];
         uint8_t BUFF_SIZE;
         uint8_t START_BYTE[2] = {0xA5, 0xFF};
         uint8_t START_SIZE = 2;
         uint8_t DATA_SIZE;
         uint8_t CRC_SIZE = 2;
         uint8_t START_INDEX;
-        uint8_t *EXTRACT_DATA;
         uint8_t *EXTRACT_CRC;
         uint32_t CALC_CRC;
 
         uint8_t INDEX_SIZE = 4;
         uint8_t INDEX[4] = {0,0,0,0};
-        uint8_t INCOMPLETE = 0;
-        uint8_t TempRXBuf[20];
-        uint8_t *RXBuf = RXBufM1;
 
         uint8_t i;
         union {
@@ -1379,24 +1202,55 @@ void StartRXMotor1(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
+        uint8_t PCBufM1[10];
+        uint8_t Data1 = 0;
+        uint8_t Data2 = 0;
+        uint8_t Data3 = 0;
+
+        struct __attribute__((__packed__)) CURRENTStruct {
+        	uint8_t HEAD[8];
+        	uint8_t DATA[2];
+        	uint8_t CRC2[2];
+        };
+
+        struct __attribute__((__packed__)) POSITIONStruct {
+        	uint8_t HEAD[8];
+        	uint8_t DATA[4];
+        	uint8_t CRC2[2];
+        };
+
+        struct __attribute__((__packed__)) VELOCITYStruct {
+        	uint8_t HEAD[8];
+        	uint8_t DATA[4];
+        	uint8_t CRC2[2];
+        };
+
+        struct CURRENTStruct CURRENTrx;
+        struct POSITIONStruct POSITIONrx;
+        struct VELOCITYStruct VELOCITYrx;
+        uint8_t *CURRENTrxPTR = (uint8_t*)&CURRENTrx;
+        uint8_t *POSITIONrxPTR = (uint8_t*)&POSITIONrx;
+        uint8_t *VELOCITYrxPTR = (uint8_t*)&VELOCITYrx;
+
         /* Infinite loop */
         for(;; )
         {
-            // Suspend ourselves.
-            vTaskSuspend( NULL );
 
+                if(Data1 && Data2 && Data3) {
+                        xQueueSend( ProcessQM1Handle, ( void * ) &PCBufM1, ( TickType_t ) 5 );
+                        Data1 = 0;
+                        Data2 = 0;
+                        Data3 = 0;
+                }
 
-
-                ReceiveM1_DMA(RXBufM2, 20);
-                while(huart2.RxState != HAL_UART_STATE_READY) ;
-                i = 0;
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
-                if(findMultipleBytes(RXBuf, 40, START_BYTE, START_SIZE, INDEX)) {
+                // Suspend ourselves.
+                vTaskSuspend( NULL );
+                memcpy(BUFFER_TO_CHECK, RXBufM1, 50);
+                if(findMultipleBytes(BUFFER_TO_CHECK, 50, START_BYTE, START_SIZE, INDEX)) {
                         for(i=0; i<INDEX_SIZE; i++) {
-                                OPCODE = (RXBuf[INDEX[i]+2] & 0b00111100)>>2;
+                                OPCODE = (BUFFER_TO_CHECK[INDEX[i]+2] & 0b00111100)>>2;
                                 if(OPCODE == 0) {break; };
 
-                                BUFFER_TO_CHECK = RXBuf;
                                 START_INDEX = INDEX[i];
 
                                 // if(INCOMPLETE!=0)
@@ -1418,7 +1272,7 @@ void StartRXMotor1(void const * argument)
                                 //         break;
                                 // };
 
-                                if((START_INDEX + 14)>40) {
+                                if((START_INDEX + 14)>50) {
                                         break;
                                 }
 
@@ -1429,44 +1283,43 @@ void StartRXMotor1(void const * argument)
                                 case 0b1100: //Current_Data
                                         BUFF_SIZE = 12;
                                         DATA_SIZE = 2;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 10, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {}
-                                        INCOMPLETE = 0;
+                                        memcpy(CURRENTrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+                                        WORDtoBYTE.BYTE[1] = CURRENTrx.CRC2[0];
+                                        WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
+                                        CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM1, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                Data1 = 1;
+                                        }
                                         break;
                                 case 0b1111: //Position_Data
                                         BUFF_SIZE = 14;
                                         DATA_SIZE = 4;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 12, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {}
-                                        INCOMPLETE = 0;
+                                        memcpy(POSITIONrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+										WORDtoBYTE.BYTE[1] = POSITIONrx.CRC2[0];
+										WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
+										CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM1, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                Data2 = 1;
+                                        }
                                         break;
                                 case 0b0101: //Velocity_Data
                                         BUFF_SIZE = 14;
                                         DATA_SIZE = 4;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 12, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) {}
-                                        INCOMPLETE = 0;
+                                        memcpy(VELOCITYrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+										WORDtoBYTE.BYTE[1] = VELOCITYrx.CRC2[0];
+										WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
+										CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM1, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                Data3 = 1;
+                                        }
                                         break;
                                 default:
                                         break;
                                 }
                         }
-                        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
                 //worst case TX blocked for 5ms and new transmission takes place, reply should be picked up
@@ -1497,21 +1350,18 @@ void StartRXMotor2(void const * argument)
 {
   /* USER CODE BEGIN StartRXMotor2 */
         uint8_t OPCODE;
-        uint8_t *BUFFER_TO_CHECK;
+        uint8_t BUFFER_TO_CHECK[50];
         uint8_t BUFF_SIZE;
         uint8_t START_BYTE[2] = {0xA5, 0xFF};
         uint8_t START_SIZE = 2;
         uint8_t DATA_SIZE;
         uint8_t CRC_SIZE = 2;
         uint8_t START_INDEX;
-        uint8_t *EXTRACT_DATA;
         uint8_t *EXTRACT_CRC;
         uint32_t CALC_CRC;
 
         uint8_t INDEX_SIZE = 4;
         uint8_t INDEX[4] = {0,0,0,0};
-        uint8_t INCOMPLETE = 0;
-        uint8_t *RXBuf = RXBufM2;
 
         uint8_t i;
         union {
@@ -1520,27 +1370,56 @@ void StartRXMotor2(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
-        uint8_t * pxRxedMessage;
+        uint8_t PCBufM2[10];
+        uint8_t Data1 = 0;
+        uint8_t Data2 = 0;
+        uint8_t Data3 = 0;
+
+        struct __attribute__((__packed__)) CURRENTStruct {
+                	uint8_t HEAD[8];
+                	uint8_t DATA[2];
+                	uint8_t CRC2[2];
+                };
+
+                struct __attribute__((__packed__)) POSITIONStruct {
+                	uint8_t HEAD[8];
+                	uint8_t DATA[4];
+                	uint8_t CRC2[2];
+                };
+
+                struct __attribute__((__packed__)) VELOCITYStruct {
+                	uint8_t HEAD[8];
+                	uint8_t DATA[4];
+                	uint8_t CRC2[2];
+                };
+
+                struct CURRENTStruct CURRENTrx;
+                struct POSITIONStruct POSITIONrx;
+                struct VELOCITYStruct VELOCITYrx;
+                uint8_t *CURRENTrxPTR = (uint8_t*)&CURRENTrx;
+                uint8_t *POSITIONrxPTR = (uint8_t*)&POSITIONrx;
+                uint8_t *VELOCITYrxPTR = (uint8_t*)&VELOCITYrx;
 
         /* Infinite loop */
         for(;; )
         {
 
-            // Suspend ourselves.
-            vTaskSuspend( NULL );
+                if(Data1 && Data2 && Data3) {
+                        xQueueSend( ProcessQM2Handle, ( void * ) &PCBufM2, ( TickType_t ) 5 );
+                        Data1 = 0;
+                        Data2 = 0;
+                        Data3 = 0;
+                }
 
-
-
-                ReceiveM2_DMA(RXBufM1, 20);
-                while(huart3.RxState != HAL_UART_STATE_READY) ;
-
-                i=0;
-                if(findMultipleBytes(RXBuf, 40, START_BYTE, START_SIZE, INDEX)) {
+                // Suspend ourselves.
+                vTaskSuspend( NULL );
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+                memcpy(BUFFER_TO_CHECK, RXBufM2, 50);
+                if(findMultipleBytes(BUFFER_TO_CHECK, 50, START_BYTE, START_SIZE, INDEX)) {
                         for(i=0; i<INDEX_SIZE; i++) {
-                                OPCODE = (RXBuf[INDEX[i]+2] & 0b00111100)>>2;
+                                OPCODE = (BUFFER_TO_CHECK[INDEX[i]+2] & 0b00111100)>>2;
                                 if(OPCODE == 0) {break; };
 
-                                BUFFER_TO_CHECK = RXBuf;
                                 START_INDEX = INDEX[i];
 
                                 // if(INCOMPLETE!=0)
@@ -1562,7 +1441,7 @@ void StartRXMotor2(void const * argument)
                                 //         break;
                                 // };
 
-                                if((START_INDEX + 14)>40) {
+                                if((START_INDEX + 14)>50) {
                                         break;
                                 }
 
@@ -1573,44 +1452,46 @@ void StartRXMotor2(void const * argument)
                                 case 0b1100: //Current_Data
                                         BUFF_SIZE = 12;
                                         DATA_SIZE = 2;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 10, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) { }
-                                        INCOMPLETE = 0;
+                                        memcpy(CURRENTrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+                                        WORDtoBYTE.BYTE[1] = CURRENTrx.CRC2[0];
+                                        WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
+                                        CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM2, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                Data1 = 1;
+                                        }
                                         break;
-                                case 0b0101: //Position_Data
+                                case 0b1111: //Position_Data
                                         BUFF_SIZE = 14;
                                         DATA_SIZE = 4;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 12, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) { }
-                                        INCOMPLETE = 0;
+                                        memcpy(POSITIONrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+										WORDtoBYTE.BYTE[1] = POSITIONrx.CRC2[0];
+										WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
+										CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM2, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                Data2 = 1;
+                                        }
                                         break;
-                                case 0b1111: //Velocity_Data
+                                case 0b0101: //Velocity_Data
                                         BUFF_SIZE = 14;
                                         DATA_SIZE = 4;
-                                        EXTRACT_DATA = extractBytes(BUFFER_TO_CHECK, START_INDEX + 8, DATA_SIZE);
-                                        EXTRACT_CRC = extractBytes(BUFFER_TO_CHECK, START_INDEX + 12, CRC_SIZE);
-                                        WORDtoBYTE.BYTE[1] = EXTRACT_CRC[0];
-                                        WORDtoBYTE.BYTE[0] = EXTRACT_CRC[1];
-                                        EXTRACT_CRC = WORDtoBYTE.WORD;
-                                        CALC_CRC = crcCalc(EXTRACT_DATA, 0, DATA_SIZE, 1);
-                                        if(EXTRACT_CRC==CALC_CRC) { }
-                                        INCOMPLETE = 0;
+                                        memcpy(VELOCITYrxPTR, &BUFFER_TO_CHECK[START_INDEX], BUFF_SIZE);
+										WORDtoBYTE.BYTE[1] = VELOCITYrx.CRC2[0];
+										WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
+										CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
+                                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                                //appendBytes(PCBufM2, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                Data3 = 1;
+                                        }
                                         break;
                                 default:
                                         break;
                                 }
+
                         }
                 }
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
                 //worst case TX blocked for 5ms and new transmission takes place, reply should be picked up
                 // Command Byte (byte 3 of packet) Opcode: xx xx:
@@ -1638,30 +1519,6 @@ void StartRXMotor2(void const * argument)
   /* USER CODE END StartRXMotor2 */
 }
 
-/* StartRXPCM1 function */
-void StartRXPCM1(void const * argument)
-{
-  /* USER CODE BEGIN StartRXPCM1 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartRXPCM1 */
-}
-
-/* StartRXPCM2 function */
-void StartRXPCM2(void const * argument)
-{
-  /* USER CODE BEGIN StartRXPCM2 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartRXPCM2 */
-}
-
 /**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM1 interrupt took place, inside
@@ -1673,24 +1530,6 @@ void StartRXPCM2(void const * argument)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 /* USER CODE BEGIN Callback 0 */
-
-    if (htim->Instance == TIM3) { //Motor1
-              HAL_DMA_Abort(&hdma_usart1_rx);
-              huart1.RxState = HAL_UART_STATE_READY;
-              HAL_TIM_Base_Stop_IT(htim);
-      }
-
-        if (htim->Instance == TIM5) { //Motor1
-                HAL_DMA_Abort(&hdma_usart2_rx);
-                huart2.RxState = HAL_UART_STATE_READY;
-                HAL_TIM_Base_Stop_IT(htim);
-        }
-
-        if (htim->Instance == TIM2) { //Motor2
-                HAL_DMA_Abort(&hdma_usart3_rx);
-                huart3.RxState = HAL_UART_STATE_READY;
-                HAL_TIM_Base_Stop_IT(htim);
-        }
 
 /* USER CODE END Callback 0 */
   if (htim->Instance == TIM1) {
