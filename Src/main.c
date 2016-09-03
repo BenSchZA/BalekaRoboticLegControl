@@ -853,8 +853,9 @@ void StartTXPC(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-        		vTaskSuspend(NULL);
-                if(xQueueReceive( ProcessQM1Handle, &( pxRxedM1Message ), portMAX_DELAY ) && xQueueReceive( ProcessQM2Handle, &( pxRxedM2Message ), portMAX_DELAY )){
+        		//vTaskSuspend(NULL);
+                if(xQueueReceive( ProcessQM1Handle, &pxRxedM1Message, portMAX_DELAY ) ){
+                	//&& xQueueReceive( ProcessQM2Handle, &pxRxedM2Message, portMAX_DELAY )
                   memcpy(PCPacket.M1C, pxRxedM1Message, 10);
                   memcpy(PCPacket.M2C, pxRxedM2Message, 10);
                   //PCPacket.CRCCheck = ; //TODO
@@ -963,9 +964,7 @@ void StartRXPC(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-        		HAL_UART_Transmit_DMA(&huart4, temp, 16);
-        		while(huart4.gState != HAL_UART_STATE_READY);
-            	//memcpy(RXBufPC, temp, 20);
+            	memcpy(RXBufPC, temp, 20);
         		memcpy(BUFFER_TO_CHECK, RXBufPC, 34);
                 START_INDEX = findBytes(BUFFER_TO_CHECK, 34, RXPacket.START, 2, 1);
                 memcpy(RXPacketPTR, &BUFFER_TO_CHECK[START_INDEX], 16);
@@ -1010,8 +1009,6 @@ void StartRXPC(void const * argument)
                 	                TransmitM2_DMA(CurrentCommandM2PTR, sizeof(CurrentCommandM2));
                 	                while(huart3.gState != HAL_UART_STATE_READY);
                 }
-
-
         }
   /* USER CODE END StartRXPC */
 }
@@ -1237,7 +1234,7 @@ void StartRXMotor1(void const * argument)
         {
 
                 if(Data1 && Data2 && Data3) {
-                        xQueueSend( ProcessQM1Handle, ( void * ) &PCBufM1, ( TickType_t ) 5 );
+                        xQueueSend( ProcessQM1Handle, &PCBufM1, ( TickType_t ) 5 );
                         Data1 = 0;
                         Data2 = 0;
                         Data3 = 0;
@@ -1273,6 +1270,7 @@ void StartRXMotor1(void const * argument)
                                 // };
 
                                 if((START_INDEX + 14)>50) {
+                                	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         break;
                                 }
 
@@ -1288,7 +1286,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
                                         CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM1, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM1, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
                                                 Data1 = 1;
                                         }
                                         break;
@@ -1300,7 +1298,7 @@ void StartRXMotor1(void const * argument)
 										WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
 										CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM1, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM1, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
                                                 Data2 = 1;
                                         }
                                         break;
@@ -1312,7 +1310,7 @@ void StartRXMotor1(void const * argument)
 										WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
 										CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM1, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM1, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
                                                 Data3 = 1;
                                         }
                                         break;
@@ -1405,7 +1403,7 @@ void StartRXMotor2(void const * argument)
         {
 
                 if(Data1 && Data2 && Data3) {
-                        xQueueSend( ProcessQM2Handle, ( void * ) &PCBufM2, ( TickType_t ) 5 );
+                        xQueueSend( ProcessQM2Handle, &PCBufM2, ( TickType_t ) 5 );
                         Data1 = 0;
                         Data2 = 0;
                         Data3 = 0;
@@ -1413,7 +1411,6 @@ void StartRXMotor2(void const * argument)
 
                 // Suspend ourselves.
                 vTaskSuspend( NULL );
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 memcpy(BUFFER_TO_CHECK, RXBufM2, 50);
                 if(findMultipleBytes(BUFFER_TO_CHECK, 50, START_BYTE, START_SIZE, INDEX)) {
                         for(i=0; i<INDEX_SIZE; i++) {
@@ -1457,7 +1454,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
                                         CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM2, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM2, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
                                                 Data1 = 1;
                                         }
                                         break;
@@ -1469,7 +1466,7 @@ void StartRXMotor2(void const * argument)
 										WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
 										CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM2, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM2, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
                                                 Data2 = 1;
                                         }
                                         break;
@@ -1481,7 +1478,7 @@ void StartRXMotor2(void const * argument)
 										WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
 										CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                //appendBytes(PCBufM2, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBufM2, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
                                                 Data3 = 1;
                                         }
                                         break;
@@ -1491,7 +1488,6 @@ void StartRXMotor2(void const * argument)
 
                         }
                 }
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
                 //worst case TX blocked for 5ms and new transmission takes place, reply should be picked up
                 // Command Byte (byte 3 of packet) Opcode: xx xx:
