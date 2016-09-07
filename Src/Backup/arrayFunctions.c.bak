@@ -65,10 +65,7 @@ uint8_t *appendBytes(uint8_t *array, uint8_t asize, uint8_t index, uint8_t *byte
 {
     if(asize>=index+noBytes)
     {
-        uint8_t *extract;
-        memcpy(extract, &bytes[start], noBytes);
-        //extractBytes(extract, bytes, start, noBytes);
-        memcpy(&array[index], extract, noBytes);
+    	memcpy(&array[index], &bytes[start], noBytes);
         return array;
     }
     else
