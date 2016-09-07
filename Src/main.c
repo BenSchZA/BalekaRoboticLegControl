@@ -299,6 +299,8 @@ struct __attribute__((__packed__)) BaseCommandStruct {
         uint8_t CRC2[2];
 };
 
+uint8_t SNIP;
+
 struct BaseCommandStruct BaseCommand;
 uint8_t *BaseCommandPTR = (uint8_t*)&BaseCommand;
 
@@ -331,7 +333,7 @@ void SetupMotors(void);
 void SetupArrays(void);
 void SetupBinarySemaphores(void);
 
-void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN);
+void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
 void ClearBuf(uint8_t buf[], uint8_t size); //Set buffer contents to 0
 void SetBuf(uint8_t buf[], uint8_t set[], uint8_t size); //Set buf[] to set[]
 void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t val2, uint8_t pos3, uint8_t val3, uint8_t pos4, uint8_t val4); //For setting current commands, set pos to NULL to omit
@@ -377,8 +379,8 @@ int main(void)
         initCRC(0); //iNemo CRC False
         initCRC(1); //Driver CRC XModem
         SetupArrays();
+        SetupMotors(); //NOTE! For some reason calling this function after SetupBinarySemaphores stops UART from initialising properly...
         SetupBinarySemaphores();
-        SetupMotors();
         SetupCircularBuffers();
   /* USER CODE END 2 */
 
@@ -480,11 +482,11 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
- 
+
 
   /* Start scheduler */
   osKernelStart();
-  
+
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -602,10 +604,10 @@ static void MX_USART3_UART_Init(void)
 
 }
 
-/** 
+/**
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void) 
+static void MX_DMA_Init(void)
 {
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -632,9 +634,9 @@ static void MX_DMA_Init(void)
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
+/** Configure pins as
+        * Analog
+        * Input
         * Output
         * EVENT_OUT
         * EXTI
@@ -676,12 +678,12 @@ void SetupMotors(void){
         TransmitM2_DMA(WRITE, sizeof(WRITE));
         while(huart3.gState != HAL_UART_STATE_READY);
         HAL_Delay(100);
-        TransmitM1_DMA(BRIDGE, sizeof(BRIDGE));
-        while(huart2.gState != HAL_UART_STATE_READY);
-        HAL_Delay(100);
-        TransmitM2_DMA(BRIDGE, sizeof(BRIDGE));
-        while(huart3.gState != HAL_UART_STATE_READY);
-        HAL_Delay(100);
+//        TransmitM1_DMA(BRIDGE, sizeof(BRIDGE));
+//        while(huart2.gState != HAL_UART_STATE_READY);
+//        HAL_Delay(100);
+//        TransmitM2_DMA(BRIDGE, sizeof(BRIDGE));
+//        while(huart3.gState != HAL_UART_STATE_READY);
+//        HAL_Delay(100);
 }
 
 void SetupBinarySemaphores(void){
@@ -712,7 +714,7 @@ void SetupArrays(void){
         MotorPacketSize.VELOCITY_DATA = VELOCITY_DATA_L;
 }
 
-void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN){
+void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
 		memset(BaseCommandPTR, 0, sizeof(BaseCommand));
 
 		BaseCommand.START[0] = 0xA5;
@@ -720,6 +722,7 @@ void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *D
         BaseCommand.CB = CB;
         BaseCommand.INDOFF[0] = INDOFF1;
         BaseCommand.INDOFF[1] = INDOFF2;
+        BaseCommand.LEN = LEN;
         CALC_CRCBase = crcCalc(BaseCommand.START, 0, 6, 1);
         WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
         BaseCommand.CRC1[0] = WORDtoBYTEBase.BYTE[1];
@@ -729,13 +732,15 @@ void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *D
         for(int i = 0; i<sizeof(DATA); i++){
           BaseCommand.DATA[i] = DATA[i];
         }
-
-        BaseCommand.LEN = 0x02; //TODO Check if this works
         CALC_CRCBase = crcCalc(BaseCommand.DATA, 0, sizeof(DATA), 1);
         WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
         BaseCommand.CRC2[0] = WORDtoBYTEBase.BYTE[1];
         BaseCommand.CRC2[1] = WORDtoBYTEBase.BYTE[0];
         }
+
+        SNIP = SNIP_LEN;
+
+        memcpy(&BaseCommand.DATA[4-SNIP], BaseCommand.CRC2, 2);
 }
 
 void ClearBuf(uint8_t buf[], uint8_t size){
@@ -883,7 +888,7 @@ void StartDefaultTask(void const * argument)
         {
                 osDelay(500);
         }
-  /* USER CODE END 5 */ 
+  /* USER CODE END 5 */
 }
 
 /* StartTXPC function */
@@ -995,9 +1000,9 @@ void StartRXPC(void const * argument)
 
         ////////////////////////////////////////////////////////////////////////
 
-        uint8_t KILL_BRIDGE_DATA[4] = {0x01, 0x00, 0x00, 0x00};
-        uint8_t WRITE_ENABLE_DATA[4] = {0x0F, 0x00, 0x00, 0x00};
-        uint8_t BRIDGE_ENABLE_DATA[4] = {0x00, 0x00, 0x00, 0x00};
+        uint8_t KILL_BRIDGE_DATA[4] = {0x01, 0x00};
+        uint8_t WRITE_ENABLE_DATA[4] = {0x0F, 0x00};
+        uint8_t BRIDGE_ENABLE_DATA[4] = {0x00, 0x00};
 
         ////////////////////////////////////////////////////////////////////////
 
@@ -1029,44 +1034,44 @@ void StartRXPC(void const * argument)
                 if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                         switch(RXPacket.OPCODE) {
                         case 0: //Kill Bridge
-                                BaseCommandCompile(0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1);
+                                BaseCommandCompile(0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 1: //Write Enable
-                                BaseCommandCompile(0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1);
+                                BaseCommandCompile(0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 2: //Enable Bridge
-                                BaseCommandCompile(0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1);
+                                BaseCommandCompile(0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 3: //Current Command
-                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M1C, 2);
+                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M2C, 2);
+                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 4: //Position Command
-                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M1P, 2);
+                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M2P, 2);
+                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 5: //Read Current
-								BaseCommandCompile(0x31, 0x10, 0x03, NULL, 1);
+								BaseCommandCompile(0x31, 0x10, 0x03, NULL, 1, 4);
 								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 6: //Read Position
-								BaseCommandCompile(0x3D, 0x12, 0x00, NULL, 2);
+								BaseCommandCompile(0x3D, 0x12, 0x00, NULL, 2, 4);
 								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 7: //Read Velocity
-								BaseCommandCompile(0x15, 0x11, 0x02, NULL, 2);
+								BaseCommandCompile(0x15, 0x11, 0x02, NULL, 2, 4);
 								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
@@ -1148,7 +1153,7 @@ void StartTXMotor1(void const * argument)
         		xSemaphoreTake( TXMotorM1Handle, portMAX_DELAY );
                 // Receive a message on the created queue. Block 5.
                 xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                TransmitM1_DMA(pxRxedMessage, sizeof(pxRxedMessage));
+                TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand) - SNIP - (SNIP==4)*2); //TODO sizing??
                 //xSemaphoreGive( RXMotorM1Handle );
                 while(huart2.gState != HAL_UART_STATE_READY);
         }
@@ -1166,7 +1171,7 @@ void StartTXMotor2(void const * argument)
         		xSemaphoreTake( TXMotorM2Handle, portMAX_DELAY );
                 // Receive a message on the created queue. Block 5.
                 xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                TransmitM2_DMA(pxRxedMessage, sizeof(pxRxedMessage));
+                TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand) - SNIP - (SNIP==4)*2);
                 //xSemaphoreGive( RXMotorM2Handle );
                 while(huart3.gState != HAL_UART_STATE_READY);
         }
@@ -1550,7 +1555,7 @@ void Error_Handler(void)
         while(1)
         {
         }
-  /* USER CODE END Error_Handler */ 
+  /* USER CODE END Error_Handler */
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1575,10 +1580,10 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 /**
   * @}
-  */ 
+  */
 
 /**
   * @}
-*/ 
+*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
