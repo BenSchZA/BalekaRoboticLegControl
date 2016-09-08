@@ -49,6 +49,8 @@
 
 #include "CRC.h"
 #include "arrayFunctions.h"
+#include <stm32f4xx_hal_uart.h>
+#include <stm32f4xx_hal_usart.h>
 
 //https://github.com/PetteriAimonen/Baselibc
 //#include "memccpy.c"
@@ -288,7 +290,7 @@ uint8_t *PositionCommandM1PTR = (uint8_t*)&PositionCommandM1;
 uint8_t *PositionCommandM2PTR = (uint8_t*)&PositionCommandM2;
 
 ////////////////////////////////////////////////////////////////////////
-
+//(aligned(1),
 struct __attribute__((__packed__)) BaseCommandStruct {
         uint8_t START[2];
         uint8_t CB;
@@ -301,8 +303,8 @@ struct __attribute__((__packed__)) BaseCommandStruct {
 
 uint8_t SNIP;
 
-struct BaseCommandStruct BaseCommand;
-uint8_t *BaseCommandPTR = (uint8_t*)&BaseCommand;
+struct BaseCommandStruct BaseCommand[30];
+struct BaseCommandStruct* BaseCommandPTR;
 
 union {
         uint32_t WORD;
@@ -333,7 +335,7 @@ void SetupMotors(void);
 void SetupArrays(void);
 void SetupBinarySemaphores(void);
 
-void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
+void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
 void ClearBuf(uint8_t buf[], uint8_t size); //Set buffer contents to 0
 void SetBuf(uint8_t buf[], uint8_t set[], uint8_t size); //Set buf[] to set[]
 void SetBytes(uint8_t buf[], uint8_t pos1, uint8_t val1, uint8_t pos2, uint8_t val2, uint8_t pos3, uint8_t val3, uint8_t pos4, uint8_t val4); //For setting current commands, set pos to NULL to omit
@@ -344,6 +346,7 @@ void ReceiveM2_DMA(uint8_t *data, uint8_t size);
 
 void SetupCircularBuffers(void);
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
+void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart);
 
 uint8_t count;
 
@@ -671,7 +674,7 @@ void SetupDMA(UART_HandleTypeDef *huart){
 
 void SetupMotors(void){
         //Initialize Motors
-	HAL_Delay(1000);
+        HAL_Delay(1000);
         TransmitM1_DMA(WRITE, sizeof(WRITE));
         while(huart2.gState != HAL_UART_STATE_READY);
         HAL_Delay(100);
@@ -687,12 +690,12 @@ void SetupMotors(void){
 }
 
 void SetupBinarySemaphores(void){
-	PCRXHandle = xSemaphoreCreateBinary();
+        PCRXHandle = xSemaphoreCreateBinary();
 
-	TXMotorM1Handle = xSemaphoreCreateBinary();
-	TXMotorM2Handle = xSemaphoreCreateBinary();
-	RXMotorM1Handle = xSemaphoreCreateBinary();
-	RXMotorM2Handle = xSemaphoreCreateBinary();
+        TXMotorM1Handle = xSemaphoreCreateBinary();
+        TXMotorM2Handle = xSemaphoreCreateBinary();
+        RXMotorM1Handle = xSemaphoreCreateBinary();
+        RXMotorM2Handle = xSemaphoreCreateBinary();
 }
 
 void SetupArrays(void){
@@ -714,33 +717,33 @@ void SetupArrays(void){
         MotorPacketSize.VELOCITY_DATA = VELOCITY_DATA_L;
 }
 
-void BaseCommandCompile(uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
-		memset(BaseCommandPTR, 0, sizeof(BaseCommand));
+void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
+        memset(&BaseCommand[n], 0, sizeof(BaseCommand[0]));
 
-		BaseCommand.START[0] = 0xA5;
-		BaseCommand.START[1] = 0x3F;
-        BaseCommand.CB = CB;
-        BaseCommand.INDOFF[0] = INDOFF1;
-        BaseCommand.INDOFF[1] = INDOFF2;
-        BaseCommand.LEN = LEN;
-        CALC_CRCBase = crcCalc(BaseCommand.START, 0, 6, 1);
+        BaseCommand[n].START[0] = 0xA5;
+        BaseCommand[n].START[1] = 0x3F;
+        BaseCommand[n].CB = CB;
+        BaseCommand[n].INDOFF[0] = INDOFF1;
+        BaseCommand[n].INDOFF[1] = INDOFF2;
+        BaseCommand[n].LEN = LEN;
+        CALC_CRCBase = crcCalc(BaseCommand[n].START, 0, 6, 1);
         WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-        BaseCommand.CRC1[0] = WORDtoBYTEBase.BYTE[1];
-        BaseCommand.CRC1[1] = WORDtoBYTEBase.BYTE[0];
+        BaseCommand[n].CRC1[0] = WORDtoBYTEBase.BYTE[1];
+        BaseCommand[n].CRC1[1] = WORDtoBYTEBase.BYTE[0];
 
-        if(DATA != NULL){
-        for(int i = 0; i<sizeof(DATA); i++){
-          BaseCommand.DATA[i] = DATA[i];
-        }
-        CALC_CRCBase = crcCalc(BaseCommand.DATA, 0, sizeof(DATA), 1);
-        WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-        BaseCommand.CRC2[0] = WORDtoBYTEBase.BYTE[1];
-        BaseCommand.CRC2[1] = WORDtoBYTEBase.BYTE[0];
+        if(DATA != NULL) {
+                for(int i = 0; i<LEN*2; i++) {
+                        BaseCommand[n].DATA[i] = DATA[i];
+                }
+                CALC_CRCBase = crcCalc(BaseCommand[n].DATA, 0, LEN*2, 1);
+                WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
+                BaseCommand[n].CRC2[0] = WORDtoBYTEBase.BYTE[1];
+                BaseCommand[n].CRC2[1] = WORDtoBYTEBase.BYTE[0];
         }
 
         SNIP = SNIP_LEN;
 
-        memcpy(&BaseCommand.DATA[4-SNIP], BaseCommand.CRC2, 2);
+        memcpy(&BaseCommand[n].DATA[4-SNIP], BaseCommand[n].CRC2, 2);
 }
 
 void ClearBuf(uint8_t buf[], uint8_t size){
@@ -803,76 +806,52 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
         __NOP();
 }
 
-//http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
-//void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
-//	if(huart->Instance == USART2){
-//		__HAL_UART_DISABLE_IT(huart, UART_IT_IDLE);
-//		UART_EndRxTransfer(huart);
-//
-//		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-//
-//		/* Unblock the task by releasing the semaphore. */
-//		        xSemaphoreGiveFromISR( RXM1Handle, &xHigherPriorityTaskWoken );
-//
-//		        /* Writing to the queue caused a task to unblock and the unblocked task
-//			            has a priority higher than or equal to the priority of the currently
-//			            executing task (the task this interrupt interrupted).  Perform a
-//			            context switch so this interrupt returns directly to the unblocked
-//			            task. */
-//			portEND_SWITCHING_ISR(xHigherPriorityTaskWoken); /* or portEND_SWITCHING_ISR() depending on the
-//			            port.*/
-//	}
-//
-//	if(huart->Instance == USART3){
-//		__HAL_UART_DISABLE_IT(&huart3, UART_IT_IDLE);
-//		UART_EndRxTransfer(huart);
-//
-//		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-//
-//		/* Unblock the task by releasing the semaphore. */
-//		        xSemaphoreGiveFromISR( RXM2Handle, &xHigherPriorityTaskWoken );
-//
-//		        /* Writing to the queue caused a task to unblock and the unblocked task
-//			            has a priority higher than or equal to the priority of the currently
-//			            executing task (the task this interrupt interrupted).  Perform a
-//			            context switch so this interrupt returns directly to the unblocked
-//			            task. */
-//			portEND_SWITCHING_ISR(xHigherPriorityTaskWoken); /* or portEND_SWITCHING_ISR() depending on the
-//			            port.*/
-//	}
-//}
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-//        if(huart->Instance == USART1) {
-//                BaseType_t xYieldRequired;
-//
-//                // Resume the suspended task.
-//                xYieldRequired = xTaskResumeFromISR( RXPCHandle );
-//
-//                if( xYieldRequired == pdTRUE )
-//                {
-//                        portEND_SWITCHING_ISR(); /* or portEND_SWITCHING_ISR() depending on the
-//                                                                            port.*/
-//                }
-//        }
-//
-        BaseType_t xHigherPriorityTaskWoken;
-        xHigherPriorityTaskWoken = pdFALSE;
-        if(huart->Instance == UART4) {
-                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-        }
+	__NOP();
+}
 
-        if(huart->Instance == USART2) {
-                //xSemaphoreGiveFromISR( M1Handle, &xHigherPriorityTaskWoken ); //TODO
-        }
+//http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
+void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
+	BaseType_t xHigherPriorityTaskWoken;
+	xHigherPriorityTaskWoken = pdFALSE;
 
-        if(huart->Instance == USART3) {
-                //xSemaphoreGiveFromISR( M2Handle, &xHigherPriorityTaskWoken ); //TODO
-        }
-        /* If xHigherPriorityTaskWoken was set to true you
-           we should yield.  The actual macro used here is
-           port specific. portYIELD_FROM_ISR */
-        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+	if(huart->Instance == UART4){
+		__HAL_USART_CLEAR_IDLEFLAG(huart);
+		xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
+	}
+
+	if(huart->Instance == USART2){
+
+	}
+
+	if(huart->Instance == USART3){
+
+	}
+
+    /* If xHigherPriorityTaskWoken was set to true you
+       we should yield.  The actual macro used here is
+       port specific. portYIELD_FROM_ISR */
+    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+}
+
+void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
+/* Stop UART DMA Rx request if ongoing */
+				uint32_t dmarequest = 0x00U;
+                  dmarequest = HAL_IS_BIT_SET(huart->Instance->CR3, USART_CR3_DMAR);
+                  if((huart->RxState == HAL_UART_STATE_BUSY_RX) && dmarequest)
+                  {
+                    CLEAR_BIT(huart->Instance->CR3, USART_CR3_DMAR);
+                    /* Abort the UART DMA Rx channel */
+                    if(huart->hdmarx != NULL)
+                    {
+                      HAL_DMA_Abort(huart->hdmarx);
+                    }
+                    /* Disable RXNE, PE and ERR (Frame error, noise error, overrun error) interrupts */
+                      CLEAR_BIT(huart->Instance->CR1, (USART_CR1_RXNEIE | USART_CR1_PEIE));
+                      CLEAR_BIT(huart->Instance->CR3, USART_CR3_EIE);
+                      /* At end of Rx process, restore huart->RxState to Ready */
+                      huart->RxState = HAL_UART_STATE_READY;
+                  }
 }
 
 /* USER CODE END 4 */
@@ -1000,9 +979,12 @@ void StartRXPC(void const * argument)
 
         ////////////////////////////////////////////////////////////////////////
 
-        uint8_t KILL_BRIDGE_DATA[4] = {0x01, 0x00};
-        uint8_t WRITE_ENABLE_DATA[4] = {0x0F, 0x00};
-        uint8_t BRIDGE_ENABLE_DATA[4] = {0x00, 0x00};
+        uint8_t KILL_BRIDGE_DATA[2] = {0x01, 0x00};
+        uint8_t WRITE_ENABLE_DATA[2] = {0x0F, 0x00};
+        uint8_t BRIDGE_ENABLE_DATA[2] = {0x00, 0x00};
+        uint8_t GAIN_SET_0_DATA[4] = {0x00, 0x00, 0x00, 0x00};
+        uint8_t GAIN_SET_1_DATA[4] = {0x08, 0x00, 0x00, 0x00};
+        uint8_t ZERO_POSITION_DATA[4] = {0x08, 0x00, 0x00, 0x00};
 
         ////////////////////////////////////////////////////////////////////////
 
@@ -1012,19 +994,25 @@ void StartRXPC(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
-        uint8_t BUFFER_TO_CHECK[2*RXPacketLen];
+        uint8_t BUFFER_TO_CHECK[50];
 
-        uint8_t temp[24] = {0x7E,0x5B,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xB5,0xE8,0x5D,0x7E};
+        //uint8_t temp[24] = {0x7E,0x5B,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xB5,0xE8,0x5D,0x7E};
 
-        //HAL_UART_Receive_DMA(&huart4, RXBufPC, 2*RXPacketLen);
+        uint8_t rcvdCount;
+        __HAL_USART_CLEAR_IDLEFLAG(&huart4);
+        __HAL_USART_ENABLE_IT(&huart4, USART_IT_IDLE);
         HAL_Delay(100);
         /* Infinite loop */
         for(;; )
         {
-                //xSemaphoreTake( PCRXHandle, portMAX_DELAY );
-                memcpy(RXBufPC, temp, RXPacketLen);
-                memcpy(BUFFER_TO_CHECK, RXBufPC, 2*RXPacketLen);
-                START_INDEX = findBytes(BUFFER_TO_CHECK, 2*RXPacketLen, RXPacket.START, 2, 1);
+        		HAL_UART_Receive_DMA(&huart4, RXBufPC, 50);
+                xSemaphoreTake( PCRXHandle, portMAX_DELAY );
+                rcvdCount = sizeof(RXBufPC) - huart4.hdmarx->Instance->NDTR;
+                HAL_UART_EndDMA_RX(&huart4);
+
+                //memcpy(RXBufPC, temp, RXPacketLen);
+                memcpy(BUFFER_TO_CHECK, RXBufPC, rcvdCount);
+                START_INDEX = findBytes(BUFFER_TO_CHECK, rcvdCount, RXPacket.START, 2, 1);
                 memcpy(RXPacketPTR, &BUFFER_TO_CHECK[START_INDEX], RXPacketLen);
 
                 WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
@@ -1034,53 +1022,79 @@ void StartRXPC(void const * argument)
                 if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                         switch(RXPacket.OPCODE) {
                         case 0: //Kill Bridge
-                                BaseCommandCompile(0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
+                                BaseCommandCompile(RXPacket.OPCODE, 0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
+                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 1: //Write Enable
-                                BaseCommandCompile(0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
+                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         case 2: //Enable Bridge
-                                BaseCommandCompile(0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
+                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
-                        case 3: //Current Command
-                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
+                        case 20: //Current Command
+                        		BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                BaseCommandCompile(0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
+
+                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                BaseCommandCompile(RXPacket.OPCODE+1, 0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
-                        case 4: //Position Command
-                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
+                        case 22: //Position Command
+                        		BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
                                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                BaseCommandCompile(0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
+
+                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                BaseCommandCompile(RXPacket.OPCODE+1, 0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
                                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
-                        case 5: //Read Current
-								BaseCommandCompile(0x31, 0x10, 0x03, NULL, 1, 4);
-								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                        case 8: //Zero Position
+                        		BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x00, ZERO_POSITION_DATA, 2, 0);
+                                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
-                        case 6: //Read Position
-								BaseCommandCompile(0x3D, 0x12, 0x00, NULL, 2, 4);
-								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                break;
-                        case 7: //Read Velocity
-								BaseCommandCompile(0x15, 0x11, 0x02, NULL, 2, 4);
-								xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-								xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                        case 9: //Gain Set
+                                if(RXPacket.StatBIT_1 == 0){
+                                  BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x01, GAIN_SET_0_DATA, 2, 0);
+                                }
+                                else{
+                                  BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x01, GAIN_SET_1_DATA, 2, 0);
+                                }
+                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                 break;
                         default:
                                 break;
                         }
-                		xSemaphoreGive( TXMotorM1Handle );
-                		xSemaphoreGive( TXMotorM2Handle );
-                		osDelay(5);
+
+//                        //Read Current
+//                        BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
+//                        xQueueSendToBack( TransmitM1QHandle, &BaseCommand[5], ( TickType_t ) 5);
+//                        xQueueSendToBack( TransmitM2QHandle, &BaseCommand[5], ( TickType_t ) 5);
+//
+//                        //Read Position
+//                        BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
+//                        xQueueSendToBack( TransmitM1QHandle, &BaseCommand[6], ( TickType_t ) 5);
+//                        xQueueSendToBack( TransmitM2QHandle, &BaseCommand[6], ( TickType_t ) 5);
+//
+//                        //Read Velocity
+//                        BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
+//                        xQueueSendToBack( TransmitM1QHandle, &BaseCommand[7], ( TickType_t ) 5);
+//                        xQueueSendToBack( TransmitM2QHandle, &BaseCommand[7], ( TickType_t ) 5);
+
+                        xSemaphoreGive( TXMotorM1Handle );
+                        xSemaphoreGive( TXMotorM2Handle );
                 }
 
         }
@@ -1150,12 +1164,14 @@ void StartTXMotor1(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-        		xSemaphoreTake( TXMotorM1Handle, portMAX_DELAY );
+                xSemaphoreTake( TXMotorM1Handle, portMAX_DELAY );
+                while(uxQueueMessagesWaiting( TransmitM1QHandle )){
                 // Receive a message on the created queue. Block 5.
                 xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand) - SNIP - (SNIP==4)*2); //TODO sizing??
+                TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]) - SNIP - (SNIP==4)*2); //TODO sizing??
                 //xSemaphoreGive( RXMotorM1Handle );
                 while(huart2.gState != HAL_UART_STATE_READY);
+                }
         }
   /* USER CODE END StartTXMotor1 */
 }
@@ -1168,12 +1184,14 @@ void StartTXMotor2(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-        		xSemaphoreTake( TXMotorM2Handle, portMAX_DELAY );
+                xSemaphoreTake( TXMotorM2Handle, portMAX_DELAY );
+                while(uxQueueMessagesWaiting( TransmitM1QHandle )){
                 // Receive a message on the created queue. Block 5.
                 xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand) - SNIP - (SNIP==4)*2);
+                TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]) - SNIP - (SNIP==4)*2);
                 //xSemaphoreGive( RXMotorM2Handle );
                 while(huart3.gState != HAL_UART_STATE_READY);
+                }
         }
   /* USER CODE END StartTXMotor2 */
 }
