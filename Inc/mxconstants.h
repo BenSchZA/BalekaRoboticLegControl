@@ -41,6 +41,10 @@
 
 /* Private define ------------------------------------------------------------*/
 
+#define PC_TX_Pin GPIO_PIN_0
+#define PC_TX_GPIO_Port GPIOA
+#define PC_RX_Pin GPIO_PIN_1
+#define PC_RX_GPIO_Port GPIOA
 #define Motor1_TX_Pin GPIO_PIN_2
 #define Motor1_TX_GPIO_Port GPIOA
 #define Motor1_RX_Pin GPIO_PIN_3

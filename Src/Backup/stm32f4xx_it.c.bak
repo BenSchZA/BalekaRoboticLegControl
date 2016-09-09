@@ -38,6 +38,8 @@
 
 /* USER CODE BEGIN 0 */
 
+void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
+
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -304,7 +306,7 @@ void UART4_IRQHandler(void)
   /* USER CODE END UART4_IRQn 0 */
   HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
-
+  HAL_UART_RxIdleCallback(&huart4);
   /* USER CODE END UART4_IRQn 1 */
 }
 

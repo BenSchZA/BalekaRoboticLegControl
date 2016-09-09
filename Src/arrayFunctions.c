@@ -6,7 +6,7 @@
 
 #include <arrayFunctions.h>
 
-uint8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t returnindex)
+int8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t returnindex)
 {
     uint8_t index = -1;
     uint8_t result = -1;
