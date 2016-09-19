@@ -938,22 +938,30 @@ void StartTXPC(void const * argument)
         uint8_t *pxRxedM1Message;
         uint8_t *pxRxedM2Message;
 
+        uint8_t CurrentPCPacket[sizeof(PCPacket)];
+
         /* Infinite loop */
         for(;; )
         {
-                memset(PCPacket.M1C, 0, 34);
                 xSemaphoreTake( PCTXHandle,  portMAX_DELAY );
+                //memset(PCPacket.M1C, 0, 33); //NB: Don't overwrite status bits
 
-                if(xQueueReceive( ProcessQM1Handle, &pxRxedM1Message, portMAX_DELAY )) {
+                if(xQueueReceive( ProcessQM1Handle, &pxRxedM1Message, 0 )) {
                         memcpy(PCPacket.M1C, pxRxedM1Message, 10);
                 }
-                if(xQueueReceive( ProcessQM2Handle, &pxRxedM2Message, portMAX_DELAY )) {
+                if(xQueueReceive( ProcessQM2Handle, &pxRxedM2Message, 0 )) {
                         memcpy(PCPacket.M2C, pxRxedM2Message, 10);
                 }
 
-                HAL_UART_Transmit_DMA(&huart4, PCPacketPTR, sizeof(PCPacket));   //TODO
 
-                //PCPacket.CRCCheck = ; //TODO
+
+					memcpy(CurrentPCPacket, PCPacketPTR, sizeof(PCPacket));
+					/* Disable TXEIE and TCIE interrupts */
+					  CLEAR_BIT(huart4.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
+					  /* At end of Tx process, restore huart->gState to Ready */
+					  huart4.gState = HAL_UART_STATE_READY;
+					HAL_UART_Transmit_DMA(&huart4, CurrentPCPacket, sizeof(PCPacket));   //TODO
+
 
                 PCPacket.StatBIT_1 = 0;
                 PCPacket.StatBIT_2 = 0;
@@ -961,6 +969,8 @@ void StartTXPC(void const * argument)
                 PCPacket.StatBIT_4 = 0;
                 PCPacket.StatBIT_5 = 0;
                 PCPacket.StatBIT_6 = 0;
+
+                //PCPacket.CRCCheck = ; //TODO
         }
         /* USER CODE END StartTXPC */
 }
@@ -982,7 +992,7 @@ void StartRXPC(void const * argument)
         RXPacket.STOP[1] = 0x7E;
 
 
-        uint8_t START_INDEX = 0;
+        int8_t START_INDEX = 0;
         uint8_t START_SIZE = sizeof(RXPacket.START);
         uint8_t STOP_INDEX = 0;
         uint8_t STOP_SIZE = sizeof(RXPacket.STOP);
@@ -1035,8 +1045,13 @@ void StartRXPC(void const * argument)
                         CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, 18, 0); //Check entire data CRC
 
                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+
+                        	if(huart2.RxState == HAL_UART_STATE_READY){
                                 HAL_UART_Receive_DMA(&huart2, RXBufM1, 50);
+                        	}
+                                if(huart3.RxState == HAL_UART_STATE_READY){
                                 HAL_UART_Receive_DMA(&huart3, RXBufM2, 50);
+                        	}
 
                                 switch(RXPacket.OPCODE) {
                                 case 0: //Kill Bridge
@@ -1223,7 +1238,7 @@ void StartTXMotor2(void const * argument)
                 }
 
                 osDelay(1);
-                HAL_UART_EndDMA_RX(&huart3);
+                HAL_UART_EndDMA_RX(&huart2);
                 xSemaphoreGive( RXMotorM2Handle );
         }
         /* USER CODE END StartTXMotor2 */
@@ -1235,7 +1250,7 @@ void StartRXMotor1(void const * argument)
         /* USER CODE BEGIN StartRXMotor1 */
 
         uint8_t PCBufM1[10];
-        uint8_t *PCBufM1PTR;
+        uint32_t *PCBufM1PTR;
 
 
         uint8_t OPCODE;
@@ -1293,10 +1308,12 @@ void StartRXMotor1(void const * argument)
         for(;; )
         {
                 //vTaskSuspend(NULL);
-
                 xSemaphoreTake( RXMotorM1Handle, portMAX_DELAY );
 
                 rcvdCount = sizeof(RXBufM1) - huart2.hdmarx->Instance->NDTR;
+
+                if(rcvdCount>0){
+
                 findMultipleBytes(RXBufM1, rcvdCount, START_BYTE, 2, INDEX);
 
                 for(int i=0; i<INDEX_SIZE; i++) {
@@ -1346,12 +1363,13 @@ void StartRXMotor1(void const * argument)
                                 break;
                         }
                 }
+                }
 
 
                 PCBufM1PTR = &PCBufM1;
+                if(PCPacket.StatBIT_1 || PCPacket.StatBIT_2 || PCPacket.StatBIT_3){
                 xQueueSend( ProcessQM1Handle, &PCBufM1PTR, ( TickType_t ) 5 );
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
-
+                }
 
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
                 //worst case TX blocked for 5ms and new transmission takes place, reply should be picked up
@@ -1383,7 +1401,7 @@ void StartRXMotor2(void const * argument)
         /* USER CODE BEGIN StartRXMotor2 */
 
         uint8_t PCBufM2[10];
-        uint8_t *PCBufM2PTR;
+        uint32_t *PCBufM2PTR;
 
         uint8_t OPCODE;
         uint8_t BUFFER_TO_CHECK[50];
@@ -1444,6 +1462,9 @@ void StartRXMotor2(void const * argument)
                 xSemaphoreTake( RXMotorM2Handle, portMAX_DELAY );
 
                 rcvdCount = sizeof(RXBufM2) - huart3.hdmarx->Instance->NDTR;
+
+                if(rcvdCount>0){
+
                 findMultipleBytes(RXBufM2, rcvdCount, START_BYTE, 2, INDEX);
 
                 for(int i=0; i<INDEX_SIZE; i++) {
@@ -1494,8 +1515,12 @@ void StartRXMotor2(void const * argument)
                         }
                 }
 
+                }
+
                 PCBufM2PTR = &PCBufM2;
+                if(PCPacket.StatBIT_4 || PCPacket.StatBIT_5 || PCPacket.StatBIT_6){
                 xQueueSend( ProcessQM2Handle, &PCBufM2PTR, ( TickType_t ) 5 );
+                }
 
         }
         /* USER CODE END StartRXMotor2 */
