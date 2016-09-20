@@ -49,7 +49,7 @@ uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t
         if(memcmp(extract,bytes,bsize)==0)
         {
             returnindex[z] = i;
-            result = 1;
+            result = z + 1;
             z++;
         }
     }

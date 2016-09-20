@@ -1,35 +1,35 @@
 /**
- ******************************************************************************
- * File Name          : main.c
- * Description        : Main program body
- ******************************************************************************
- *
- * COPYRIGHT(c) 2016 STMicroelectronics
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- *   1. Redistributions of source code must retain the above copyright notice,
- *      this list of conditions and the following disclaimer.
- *   2. Redistributions in binary form must reproduce the above copyright notice,
- *      this list of conditions and the following disclaimer in the documentation
- *      and/or other materials provided with the distribution.
- *   3. Neither the name of STMicroelectronics nor the names of its contributors
- *      may be used to endorse or promote products derived from this software
- *      without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- ******************************************************************************
- */
+  ******************************************************************************
+  * File Name          : main.c
+  * Description        : Main program body
+  ******************************************************************************
+  *
+  * COPYRIGHT(c) 2016 STMicroelectronics
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *   1. Redistributions of source code must retain the above copyright notice,
+  *      this list of conditions and the following disclaimer.
+  *   2. Redistributions in binary form must reproduce the above copyright notice,
+  *      this list of conditions and the following disclaimer in the documentation
+  *      and/or other materials provided with the distribution.
+  *   3. Neither the name of STMicroelectronics nor the names of its contributors
+  *      may be used to endorse or promote products derived from this software
+  *      without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  *
+  ******************************************************************************
+  */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 #include "cmsis_os.h"
@@ -95,8 +95,8 @@ osSemaphoreId M2Handle;
 uint8_t Ts = 5; //Sampling time in ms
 
 uint8_t RXBufPC[50];
-uint8_t RXBufM1[50];
-uint8_t RXBufM2[50];
+uint8_t RXBufM1[100];
+uint8_t RXBufM2[100];
 
 /* WHAT ARE ALL THE USARTS AND TIMERS USED FOR AND WHICH PINS DO THEY USE?
  *
@@ -267,210 +267,210 @@ uint8_t count;
 int main(void)
 {
 
-        /* USER CODE BEGIN 1 */
+  /* USER CODE BEGIN 1 */
 
-        /* USER CODE END 1 */
+  /* USER CODE END 1 */
 
-        /* MCU Configuration----------------------------------------------------------*/
+  /* MCU Configuration----------------------------------------------------------*/
 
-        /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-        HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-        /* Configure the system clock */
-        SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-        /* Initialize all configured peripherals */
-        MX_GPIO_Init();
-        MX_DMA_Init();
-        MX_USART2_UART_Init();
-        MX_USART3_UART_Init();
-        MX_UART4_Init();
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
+  MX_UART4_Init();
 
-        /* USER CODE BEGIN 2 */
+  /* USER CODE BEGIN 2 */
         initCRC(0); //iNemo CRC False
         initCRC(1); //Driver CRC XModem
         SetupBinarySemaphores();
-        /* USER CODE END 2 */
+  /* USER CODE END 2 */
 
-        /* USER CODE BEGIN RTOS_MUTEX */
+  /* USER CODE BEGIN RTOS_MUTEX */
         /* add mutexes, ... */
-        /* USER CODE END RTOS_MUTEX */
+  /* USER CODE END RTOS_MUTEX */
 
-        /* Create the semaphores(s) */
-        /* definition and creation of M1 */
-        osSemaphoreDef(M1);
-        M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
+  /* Create the semaphores(s) */
+  /* definition and creation of M1 */
+  osSemaphoreDef(M1);
+  M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
 
-        /* definition and creation of M2 */
-        osSemaphoreDef(M2);
-        M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
+  /* definition and creation of M2 */
+  osSemaphoreDef(M2);
+  M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
 
-        /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
         /* add semaphores, ... */
-        /* USER CODE END RTOS_SEMAPHORES */
+  /* USER CODE END RTOS_SEMAPHORES */
 
-        /* USER CODE BEGIN RTOS_TIMERS */
+  /* USER CODE BEGIN RTOS_TIMERS */
         /* start timers, add new ones, ... */
-        /* USER CODE END RTOS_TIMERS */
+  /* USER CODE END RTOS_TIMERS */
 
-        /* Create the thread(s) */
-        /* definition and creation of defaultTask */
-        osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-        defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-        /* definition and creation of TXPC */
-        osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
-        TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
+  /* definition and creation of TXPC */
+  osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
+  TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
-        /* definition and creation of RXPC */
-        osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 300);
-        RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
+  /* definition and creation of RXPC */
+  osThreadDef(RXPC, StartRXPC, osPriorityHigh, 0, 300);
+  RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
-        /* definition and creation of Heartbeat */
-        osThreadDef(Heartbeat, StartHeartbeat, osPriorityRealtime, 0, 128);
-        HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
+  /* definition and creation of Heartbeat */
+  osThreadDef(Heartbeat, StartHeartbeat, osPriorityRealtime, 0, 128);
+  HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
 
-        /* definition and creation of TXMotor1 */
-        osThreadDef(TXMotor1, StartTXMotor1, osPriorityRealtime, 0, 128);
-        TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
+  /* definition and creation of TXMotor1 */
+  osThreadDef(TXMotor1, StartTXMotor1, osPriorityRealtime, 0, 128);
+  TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
 
-        /* definition and creation of TXMotor2 */
-        osThreadDef(TXMotor2, StartTXMotor2, osPriorityRealtime, 0, 128);
-        TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
+  /* definition and creation of TXMotor2 */
+  osThreadDef(TXMotor2, StartTXMotor2, osPriorityRealtime, 0, 128);
+  TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
 
-        /* definition and creation of RXMotor1 */
-        osThreadDef(RXMotor1, StartRXMotor1, osPriorityHigh, 0, 128);
-        RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
+  /* definition and creation of RXMotor1 */
+  osThreadDef(RXMotor1, StartRXMotor1, osPriorityRealtime, 0, 128);
+  RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
 
-        /* definition and creation of RXMotor2 */
-        osThreadDef(RXMotor2, StartRXMotor2, osPriorityHigh, 0, 128);
-        RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
+  /* definition and creation of RXMotor2 */
+  osThreadDef(RXMotor2, StartRXMotor2, osPriorityRealtime, 0, 128);
+  RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
-        /* USER CODE BEGIN RTOS_THREADS */
+  /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
-        /* USER CODE END RTOS_THREADS */
+  /* USER CODE END RTOS_THREADS */
 
-        /* Create the queue(s) */
-        /* definition and creation of ProcessQM1 */
-        osMessageQDef(ProcessQM1, 1, uint32_t);
-        ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
+  /* Create the queue(s) */
+  /* definition and creation of ProcessQM1 */
+  osMessageQDef(ProcessQM1, 1, uint32_t);
+  ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
 
-        /* definition and creation of ProcessQM2 */
-        osMessageQDef(ProcessQM2, 1, uint32_t);
-        ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
+  /* definition and creation of ProcessQM2 */
+  osMessageQDef(ProcessQM2, 1, uint32_t);
+  ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
 
-        /* definition and creation of TransmitQ */
-        osMessageQDef(TransmitQ, 20, uint32_t);
-        TransmitQHandle = osMessageCreate(osMessageQ(TransmitQ), NULL);
+  /* definition and creation of TransmitQ */
+  osMessageQDef(TransmitQ, 20, uint32_t);
+  TransmitQHandle = osMessageCreate(osMessageQ(TransmitQ), NULL);
 
-        /* definition and creation of ProcessQiNemo */
-        osMessageQDef(ProcessQiNemo, 1, uint32_t);
-        ProcessQiNemoHandle = osMessageCreate(osMessageQ(ProcessQiNemo), NULL);
+  /* definition and creation of ProcessQiNemo */
+  osMessageQDef(ProcessQiNemo, 1, uint32_t);
+  ProcessQiNemoHandle = osMessageCreate(osMessageQ(ProcessQiNemo), NULL);
 
-        /* definition and creation of ProcessQPC */
-        osMessageQDef(ProcessQPC, 1, uint32_t);
-        ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
+  /* definition and creation of ProcessQPC */
+  osMessageQDef(ProcessQPC, 1, uint32_t);
+  ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
 
-        /* definition and creation of TransmitM1Q */
-        osMessageQDef(TransmitM1Q, 10, uint32_t);
-        TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
+  /* definition and creation of TransmitM1Q */
+  osMessageQDef(TransmitM1Q, 10, uint32_t);
+  TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
 
-        /* definition and creation of TransmitM2Q */
-        osMessageQDef(TransmitM2Q, 10, uint32_t);
-        TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
+  /* definition and creation of TransmitM2Q */
+  osMessageQDef(TransmitM2Q, 10, uint32_t);
+  TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
 
-        /* definition and creation of CurrentM1 */
-        osMessageQDef(CurrentM1, 1, uint32_t);
-        CurrentM1Handle = osMessageCreate(osMessageQ(CurrentM1), NULL);
+  /* definition and creation of CurrentM1 */
+  osMessageQDef(CurrentM1, 1, uint32_t);
+  CurrentM1Handle = osMessageCreate(osMessageQ(CurrentM1), NULL);
 
-        /* definition and creation of CurrentM2 */
-        osMessageQDef(CurrentM2, 1, uint32_t);
-        CurrentM2Handle = osMessageCreate(osMessageQ(CurrentM2), NULL);
+  /* definition and creation of CurrentM2 */
+  osMessageQDef(CurrentM2, 1, uint32_t);
+  CurrentM2Handle = osMessageCreate(osMessageQ(CurrentM2), NULL);
 
-        /* USER CODE BEGIN RTOS_QUEUES */
+  /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
-        /* USER CODE END RTOS_QUEUES */
+  /* USER CODE END RTOS_QUEUES */
+ 
 
+  /* Start scheduler */
+  osKernelStart();
+  
+  /* We should never get here as control is now taken by the scheduler */
 
-        /* Start scheduler */
-        osKernelStart();
-
-        /* We should never get here as control is now taken by the scheduler */
-
-        /* Infinite loop */
-        /* USER CODE BEGIN WHILE */
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
         while (1)
         {
-                /* USER CODE END WHILE */
+  /* USER CODE END WHILE */
 
-                /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 3 */
 
         }
-        /* USER CODE END 3 */
+  /* USER CODE END 3 */
 
 }
 
 /** System Clock Configuration
- */
+*/
 void SystemClock_Config(void)
 {
 
-        RCC_OscInitTypeDef RCC_OscInitStruct;
-        RCC_ClkInitTypeDef RCC_ClkInitStruct;
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-        __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_RCC_PWR_CLK_ENABLE();
 
-        __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-        RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-        RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-        RCC_OscInitStruct.HSICalibrationValue = 16;
-        RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-        RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-        RCC_OscInitStruct.PLL.PLLM = 8;
-        RCC_OscInitStruct.PLL.PLLN = 168;
-        RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-        RCC_OscInitStruct.PLL.PLLQ = 4;
-        if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = 16;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-        RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                                      |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-        RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-        RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-        RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-        RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-        if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-        HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-        HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-        /* SysTick_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+  /* SysTick_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
 /* UART4 init function */
 static void MX_UART4_Init(void)
 {
 
-        huart4.Instance = UART4;
-        huart4.Init.BaudRate = 115200;
-        huart4.Init.WordLength = UART_WORDLENGTH_8B;
-        huart4.Init.StopBits = UART_STOPBITS_1;
-        huart4.Init.Parity = UART_PARITY_NONE;
-        huart4.Init.Mode = UART_MODE_TX_RX;
-        huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart4) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 115200;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -478,18 +478,18 @@ static void MX_UART4_Init(void)
 static void MX_USART2_UART_Init(void)
 {
 
-        huart2.Instance = USART2;
-        huart2.Init.BaudRate = 921600;
-        huart2.Init.WordLength = UART_WORDLENGTH_8B;
-        huart2.Init.StopBits = UART_STOPBITS_1;
-        huart2.Init.Parity = UART_PARITY_NONE;
-        huart2.Init.Mode = UART_MODE_TX_RX;
-        huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart2) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 921600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -497,77 +497,77 @@ static void MX_USART2_UART_Init(void)
 static void MX_USART3_UART_Init(void)
 {
 
-        huart3.Instance = USART3;
-        huart3.Init.BaudRate = 921600;
-        huart3.Init.WordLength = UART_WORDLENGTH_8B;
-        huart3.Init.StopBits = UART_STOPBITS_1;
-        huart3.Init.Parity = UART_PARITY_NONE;
-        huart3.Init.Mode = UART_MODE_TX_RX;
-        huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart3) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 921600;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
-/**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void)
+/** 
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void) 
 {
-        /* DMA controller clock enable */
-        __HAL_RCC_DMA1_CLK_ENABLE();
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
-        /* DMA interrupt init */
-        /* DMA1_Stream1_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-        /* DMA1_Stream2_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
-        /* DMA1_Stream3_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-        /* DMA1_Stream4_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
-        /* DMA1_Stream5_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
-        /* DMA1_Stream6_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA interrupt init */
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+  /* DMA1_Stream4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
 
 }
 
-/** Configure pins as
- * Analog
- * Input
- * Output
- * EVENT_OUT
- * EXTI
- */
+/** Configure pins as 
+        * Analog 
+        * Input 
+        * Output
+        * EVENT_OUT
+        * EXTI
+*/
 static void MX_GPIO_Init(void)
 {
 
-        GPIO_InitTypeDef GPIO_InitStruct;
+  GPIO_InitTypeDef GPIO_InitStruct;
 
-        /* GPIO Ports Clock Enable */
-        __HAL_RCC_GPIOA_CLK_ENABLE();
-        __HAL_RCC_GPIOC_CLK_ENABLE();
-        __HAL_RCC_GPIOB_CLK_ENABLE();
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-        /*Configure GPIO pin Output Level */
-        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
-        /*Configure GPIO pins : PB8 PB9 */
-        GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
-        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-        HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  /*Configure GPIO pins : PB8 PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 
@@ -650,33 +650,53 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-        __NOP();
+//    BaseType_t xHigherPriorityTaskWoken;
+//    xHigherPriorityTaskWoken = pdFALSE;
+//
+//    if(huart->Instance == UART4) {
+//            xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
+//    }
+//
+////        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+////                __HAL_USART_CLEAR_IDLEFLAG(huart);
+////                xSemaphoreGiveFromISR( RXMotorM1Handle, &xHigherPriorityTaskWoken );
+////        }
+////
+////        if(huart->Instance == USART3 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+////                __HAL_USART_CLEAR_IDLEFLAG(huart);
+////                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
+////        }
+//
+//    /* If xHigherPriorityTaskWoken was set to true you
+//       we should yield.  The actual macro used here is
+//       port specific. portYIELD_FROM_ISR */
+//    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 //http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
-        BaseType_t xHigherPriorityTaskWoken;
-        xHigherPriorityTaskWoken = pdFALSE;
+    BaseType_t xHigherPriorityTaskWoken;
+    xHigherPriorityTaskWoken = pdFALSE;
 
-        if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-                __HAL_USART_CLEAR_IDLEFLAG(huart);
-                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-        }
+    if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+            __HAL_USART_CLEAR_IDLEFLAG(huart);
+            xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
+    }
 
-//        if(huart->Instance == USART2) {
+//        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
 //                __HAL_USART_CLEAR_IDLEFLAG(huart);
 //                xSemaphoreGiveFromISR( RXMotorM1Handle, &xHigherPriorityTaskWoken );
 //        }
 //
-//        if(huart->Instance == USART3) {
+//        if(huart->Instance == USART3 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
 //                __HAL_USART_CLEAR_IDLEFLAG(huart);
 //                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
 //        }
 
-        /* If xHigherPriorityTaskWoken was set to true you
-           we should yield.  The actual macro used here is
-           port specific. portYIELD_FROM_ISR */
-        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+    /* If xHigherPriorityTaskWoken was set to true you
+       we should yield.  The actual macro used here is
+       port specific. portYIELD_FROM_ISR */
+    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
@@ -705,20 +725,20 @@ void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
 void StartDefaultTask(void const * argument)
 {
 
-        /* USER CODE BEGIN 5 */
+  /* USER CODE BEGIN 5 */
         vTaskSuspend( NULL );
         /* Infinite loop */
         for(;; )
         {
                 osDelay(500);
         }
-        /* USER CODE END 5 */
+  /* USER CODE END 5 */ 
 }
 
 /* StartTXPC function */
 void StartTXPC(void const * argument)
 {
-        /* USER CODE BEGIN StartTXPC */
+  /* USER CODE BEGIN StartTXPC */
 
         memset(PCPacketPTR, 0, sizeof(PCPacket));
 
@@ -764,10 +784,12 @@ void StartTXPC(void const * argument)
                 }
 
                 memcpy(CurrentPCPacket, PCPacketPTR, sizeof(PCPacket));
+
                 /* Disable TXEIE and TCIE interrupts */
                 CLEAR_BIT(huart4.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
                 /* At end of Tx process, restore huart->gState to Ready */
                 huart4.gState = HAL_UART_STATE_READY;
+
                 HAL_UART_Transmit_DMA(&huart4, CurrentPCPacket, sizeof(PCPacket)); //TODO
 
                 PCPacket.StatBIT_1 = 0;
@@ -784,13 +806,13 @@ void StartTXPC(void const * argument)
 
                 osDelay(5);
         }
-        /* USER CODE END StartTXPC */
+  /* USER CODE END StartTXPC */
 }
 
 /* StartRXPC function */
 void StartRXPC(void const * argument)
 {
-        /* USER CODE BEGIN StartRXPC */
+  /* USER CODE BEGIN StartRXPC */
 
         //From PC
 
@@ -830,14 +852,24 @@ void StartRXPC(void const * argument)
         __HAL_USART_CLEAR_IDLEFLAG(&huart4);
         __HAL_USART_ENABLE_IT(&huart4, USART_IT_IDLE);
 
+//                __HAL_USART_CLEAR_IDLEFLAG(&huart2);
+//                __HAL_USART_ENABLE_IT(&huart2, USART_IT_IDLE);
+//
+//                __HAL_USART_CLEAR_IDLEFLAG(&huart3);
+//                __HAL_USART_ENABLE_IT(&huart3, USART_IT_IDLE);
+
         /* Infinite loop */
         for(;; )
         {
-        		HAL_UART_Receive_DMA(&huart4, RXBufPC, 50);
-                if(xSemaphoreTake( PCRXHandle, ( TickType_t ) 5 ) == pdTRUE){
+        		HAL_UART_Receive_DMA(&huart4, RXBufPC, sizeof(RXBufPC));
+                if(xSemaphoreTake( PCRXHandle, portMAX_DELAY ) == pdTRUE);
 
+                //rcvdCount = sizeof(RXPacket);
                 rcvdCount = sizeof(RXBufPC) - huart4.hdmarx->Instance->NDTR;
                 HAL_UART_EndDMA_RX(&huart4);
+
+                //xQueueReset(TransmitM1QHandle);
+                //xQueueReset(TransmitM2QHandle);
 
                 START_INDEX = findBytes(RXBufPC, rcvdCount, RXPacket.START, 2, 1);
                 if(START_INDEX>=0) {
@@ -849,13 +881,6 @@ void StartRXPC(void const * argument)
                         CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, 18, 0); //Check entire data CRC
 
                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-
-                                if(huart2.RxState == HAL_UART_STATE_READY) {
-                                        HAL_UART_Receive_DMA(&huart2, RXBufM1, 50);
-                                }
-                                if(huart3.RxState == HAL_UART_STATE_READY) {
-                                        HAL_UART_Receive_DMA(&huart3, RXBufM2, 50);
-                                }
 
                                 switch(RXPacket.OPCODE) {
                                 case 0: //Kill Bridge
@@ -916,98 +941,59 @@ void StartRXPC(void const * argument)
                                 }
                         }
                 }
-                }
 
-                //Read Current
-                BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
-                BaseCommandPTR = &BaseCommand[5];
-                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-                //Read Position
-                BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
-                BaseCommandPTR = &BaseCommand[6];
-                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-                //Read Velocity
-                BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
-                BaseCommandPTR = &BaseCommand[7];
-                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-                xSemaphoreGive( TXMotorM1Handle );
-                xSemaphoreGive( TXMotorM2Handle );
 
         }
-        /* USER CODE END StartRXPC */
+  /* USER CODE END StartRXPC */
 }
 
 /* StartHeartbeat function */
 void StartHeartbeat(void const * argument)
 {
-        /* USER CODE BEGIN StartHeartbeat */
-        //http://www.freertos.org/xEventGroupSync.html
-        //For reference: ALL_SYNC_BITS ( TASK_HEARTBEAT | TASK_TXM1 | TASK_TXM2 | TASK_RXM1 | TASK_RXM2 )
-        //osMessageQId TransmitM1QHandle;
-        //osMessageQId TransmitM2QHandle;
-        //Message from the "heart"
-        //	struct HeartMessage
-        //	 {
-        //		  uint8_t ucMessageID;
-        //	    uint8_t ucMessageLen;
-        //	    uint8_t ucData[ucMessageLen];
-        //	 };
-        //	struct HeartMessage xHeartM1;
-        //	struct HeartMessage xHeartM2;
-        //
-        //#define KILL (1 << 0)
-        //#define WRITE (1 << 1)
-        //#define BRIDGE (1 << 2)
-        //#define CURRENT_SET (1 << 3)
-        //#define CURRENT_DATA (1 << 4)
-        //#define POSITION_DATA (1 << 5)
-        //#define VELOCITY_DATA (1 << 6)
+  /* USER CODE BEGIN StartHeartbeat */
 
-        EventBits_t uxReturn;
-        //TickType_t xTicksToWait = 5 / portTICK_PERIOD_MS;
-        TickType_t xTicksToWait = portMAX_DELAY;
-
-        uint8_t *pxMessage;
-
-        uint8_t ID = 4;
 
         /* Infinite loop */
         for(;; )
         {
-                vTaskSuspend(NULL);
-                /* Perform task functionality here. */
-                //pxMessage = MotorPacketArray[ID];
+            //Read Current
+            BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
+            BaseCommandPTR = &BaseCommand[5];
+            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-                xQueueSendToBack( TransmitM1QHandle, &pxMessage, ( TickType_t ) 5);
-                xQueueSendToBack( TransmitM2QHandle, &pxMessage, ( TickType_t ) 5);
+            //Read Position
+            BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
+            BaseCommandPTR = &BaseCommand[6];
+            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-                ID++;
-                if(ID==7)
-                {
-                        ID = 4;         //Start with motor current read
-                        osDelay(5);
-                }
+            //Read Velocity
+            BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
+            BaseCommandPTR = &BaseCommand[7];
+            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+
+            xSemaphoreGive( TXMotorM1Handle );
+            xSemaphoreGive( TXMotorM2Handle );
+
+            osDelay(Ts);
         }
-        /* USER CODE END StartHeartbeat */
+  /* USER CODE END StartHeartbeat */
 }
 
 /* StartTXMotor1 function */
 void StartTXMotor1(void const * argument)
 {
-        /* USER CODE BEGIN StartTXMotor1 */
+  /* USER CODE BEGIN StartTXMotor1 */
         uint8_t *pxRxedMessage;
         uint32_t i;
-
         /* Infinite loop */
         for(;; )
         {
                 xSemaphoreTake( TXMotorM1Handle, portMAX_DELAY );
+                __HAL_UART_FLUSH_DRREGISTER(&huart2);
+                HAL_UART_Receive_DMA(&huart2, RXBufM1, 100);
 
                 //vTaskSuspendAll ();
                 while(uxQueueMessagesWaiting( TransmitM1QHandle )) {
@@ -1022,24 +1008,23 @@ void StartTXMotor1(void const * argument)
                         osDelay(1);
                 }
                 //xTaskResumeAll ();
-
-                osDelay(1);
-                HAL_UART_EndDMA_RX(&huart2);
                 xSemaphoreGive( RXMotorM1Handle );
         }
-        /* USER CODE END StartTXMotor1 */
+  /* USER CODE END StartTXMotor1 */
 }
 
 /* StartTXMotor2 function */
 void StartTXMotor2(void const * argument)
 {
-        /* USER CODE BEGIN StartTXMotor2 */
+  /* USER CODE BEGIN StartTXMotor2 */
         uint8_t *pxRxedMessage;
         uint32_t i;
         /* Infinite loop */
         for(;; )
         {
                 xSemaphoreTake( TXMotorM2Handle, portMAX_DELAY );
+                __HAL_UART_FLUSH_DRREGISTER(&huart3);
+                HAL_UART_Receive_DMA(&huart3, RXBufM2, 100);
 
                 //vTaskSuspendAll ();
                 while(uxQueueMessagesWaiting( TransmitM2QHandle )) {
@@ -1054,18 +1039,15 @@ void StartTXMotor2(void const * argument)
                         osDelay(1);
                 }
                 //xTaskResumeAll ();
-
-                osDelay(1);
-                HAL_UART_EndDMA_RX(&huart2);
                 xSemaphoreGive( RXMotorM2Handle );
         }
-        /* USER CODE END StartTXMotor2 */
+  /* USER CODE END StartTXMotor2 */
 }
 
 /* StartRXMotor1 function */
 void StartRXMotor1(void const * argument)
 {
-        /* USER CODE BEGIN StartRXMotor1 */
+  /* USER CODE BEGIN StartRXMotor1 */
 
         uint8_t PCBufM1[10];
         uint32_t *PCBufM1PTR;
@@ -1078,8 +1060,8 @@ void StartRXMotor1(void const * argument)
         uint8_t START_INDEX;
         uint32_t CALC_CRC;
 
-        uint8_t INDEX_SIZE = 5;
-        uint8_t INDEX[5] = {0,0,0,0,0};
+        uint8_t INDEX_SIZE = 0;
+        uint8_t INDEX[20];
 
         union {
                 uint32_t WORD;
@@ -1119,11 +1101,14 @@ void StartRXMotor1(void const * argument)
                 //vTaskSuspend(NULL);
                 xSemaphoreTake( RXMotorM1Handle, portMAX_DELAY );
 
+                //osDelay(1);
                 rcvdCount = sizeof(RXBufM1) - huart2.hdmarx->Instance->NDTR;
+                HAL_UART_EndDMA_RX(&huart2);
+                __HAL_UART_FLUSH_DRREGISTER(&huart2);
 
                 if(rcvdCount>0) {
 
-                        findMultipleBytes(RXBufM1, rcvdCount, START_BYTE, START_SIZE, INDEX);
+                		INDEX_SIZE = findMultipleBytes(RXBufM1, rcvdCount, START_BYTE, START_SIZE, INDEX);
 
                         for(int i=0; i<INDEX_SIZE; i++) {
                                 OPCODE = (RXBufM1[INDEX[i]+2] & 0b00111100)>>2;
@@ -1198,13 +1183,13 @@ void StartRXMotor1(void const * argument)
                 // 0001 0101->0001 0110
                 // 0x15->0x16
         }
-        /* USER CODE END StartRXMotor1 */
+  /* USER CODE END StartRXMotor1 */
 }
 
 /* StartRXMotor2 function */
 void StartRXMotor2(void const * argument)
 {
-        /* USER CODE BEGIN StartRXMotor2 */
+  /* USER CODE BEGIN StartRXMotor2 */
 
         uint8_t PCBufM2[10];
         uint32_t *PCBufM2PTR;
@@ -1216,8 +1201,8 @@ void StartRXMotor2(void const * argument)
         uint8_t START_INDEX;
         uint32_t CALC_CRC;
 
-        uint8_t INDEX_SIZE = 5;
-        uint8_t INDEX[5] = {0,0,0,0,0};
+        uint8_t INDEX_SIZE = 0;
+        uint8_t INDEX[20];
 
         union {
                 uint32_t WORD;
@@ -1258,11 +1243,14 @@ void StartRXMotor2(void const * argument)
 
                 xSemaphoreTake( RXMotorM2Handle, portMAX_DELAY );
 
+                //osDelay(1);
                 rcvdCount = sizeof(RXBufM2) - huart3.hdmarx->Instance->NDTR;
+                HAL_UART_EndDMA_RX(&huart3);
+                __HAL_UART_FLUSH_DRREGISTER(&huart3);
 
                 if(rcvdCount>0) {
 
-                        findMultipleBytes(RXBufM2, rcvdCount, START_BYTE, START_SIZE, INDEX);
+                        INDEX_SIZE = findMultipleBytes(RXBufM2, rcvdCount, START_BYTE, START_SIZE, INDEX);
 
                         for(int i=0; i<INDEX_SIZE; i++) {
                                 OPCODE = (RXBufM2[INDEX[i]+2] & 0b00111100)>>2;
@@ -1280,6 +1268,7 @@ void StartRXMotor2(void const * argument)
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                                                 appendBytes(PCBufM2, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_4 = 1;
+                                                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
                                         break;
                                 case 0b1111: //Position_Data
@@ -1291,6 +1280,7 @@ void StartRXMotor2(void const * argument)
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                                                 appendBytes(PCBufM2, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_5 = 1;
+                                                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
                                         break;
                                 case 0b0101: //Velocity_Data
@@ -1302,6 +1292,7 @@ void StartRXMotor2(void const * argument)
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                                                 appendBytes(PCBufM2, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_6 = 1;
+                                                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
                                         break;
                                 default:
@@ -1314,74 +1305,75 @@ void StartRXMotor2(void const * argument)
                 PCBufM2PTR = &PCBufM2;
                 if(PCPacket.StatBIT_4 || PCPacket.StatBIT_5 || PCPacket.StatBIT_6) {
                         xQueueSend( ProcessQM2Handle, &PCBufM2PTR, ( TickType_t ) 5 );
+                        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
 
         }
-        /* USER CODE END StartRXMotor2 */
+  /* USER CODE END StartRXMotor2 */
 }
 
 /**
- * @brief  Period elapsed callback in non blocking mode
- * @note   This function is called  when TIM1 interrupt took place, inside
- * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
- * a global variable "uwTick" used as application time base.
- * @param  htim : TIM handle
- * @retval None
- */
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM1 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 /* USER CODE BEGIN Callback 0 */
 
 /* USER CODE END Callback 0 */
-        if (htim->Instance == TIM1) {
-                HAL_IncTick();
-        }
+  if (htim->Instance == TIM1) {
+    HAL_IncTick();
+  }
 /* USER CODE BEGIN Callback 1 */
 
 /* USER CODE END Callback 1 */
 }
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @param  None
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @param  None
+  * @retval None
+  */
 void Error_Handler(void)
 {
-        /* USER CODE BEGIN Error_Handler */
+  /* USER CODE BEGIN Error_Handler */
         /* User can add his own implementation to report the HAL error return state */
         while(1)
         {
         }
-        /* USER CODE END Error_Handler */
+  /* USER CODE END Error_Handler */ 
 }
 
 #ifdef USE_FULL_ASSERT
 
 /**
- * @brief Reports the name of the source file and the source line number
- * where the assert_param error has occurred.
- * @param file: pointer to the source file name
- * @param line: assert_param error line source number
- * @retval None
- */
+   * @brief Reports the name of the source file and the source line number
+   * where the assert_param error has occurred.
+   * @param file: pointer to the source file name
+   * @param line: assert_param error line source number
+   * @retval None
+   */
 void assert_failed(uint8_t* file, uint32_t line)
 {
-        /* USER CODE BEGIN 6 */
+  /* USER CODE BEGIN 6 */
         /* User can add his own implementation to report the file name and line number,
            ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-        /* USER CODE END 6 */
+  /* USER CODE END 6 */
 
 }
 
 #endif
 
 /**
- * @}
- */
+  * @}
+  */ 
 
 /**
- * @}
- */
+  * @}
+*/ 
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
