@@ -38,6 +38,7 @@
 
 /* USER CODE BEGIN 0 */
 
+#include "stm32f4xx_hal_usart.h"
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
 
 /* USER CODE END 0 */
@@ -274,11 +275,11 @@ void TIM1_UP_TIM10_IRQHandler(void)
 void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
-
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
   /* USER CODE END USART2_IRQn 0 */
   HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */
-
+  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
   /* USER CODE END USART2_IRQn 1 */
 }
 
@@ -306,7 +307,7 @@ void UART4_IRQHandler(void)
   /* USER CODE END UART4_IRQn 0 */
   HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
-  HAL_UART_RxIdleCallback(&huart4);
+
   /* USER CODE END UART4_IRQn 1 */
 }
 

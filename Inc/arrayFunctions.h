@@ -6,7 +6,7 @@ int8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, u
 //uint8_t t;
 //t = findBytes(test3, 10, test2, 4, 0);
 
-uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex);
+uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex, uint8_t indexsize);
 
 void extractBytes(uint8_t *output, uint8_t *array, uint8_t start, uint8_t noBytes);
 // //Use pointer to extract output: uint8_t *extraction=extractBytes(...);

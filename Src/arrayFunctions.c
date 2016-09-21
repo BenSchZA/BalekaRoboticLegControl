@@ -35,18 +35,18 @@ int8_t findBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, u
     }
 }
 
-uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex)
+uint8_t findMultipleBytes(uint8_t *array, uint8_t asize, uint8_t *bytes, uint8_t bsize, uint8_t *returnindex, uint8_t indexsize)
 {
     uint8_t result = 0;
     uint8_t *extract;
 
     uint8_t i;
     uint8_t z = 0;
-    for(i=0;i<=asize;i++)
+    for(i=0;i<asize;i++)
     {
     	extract = &array[i];
         //extractBytes(extract,array, i, bsize);
-        if(memcmp(extract,bytes,bsize)==0)
+        if((memcmp(extract,bytes,bsize)==0) && (z<indexsize))
         {
             returnindex[z] = i;
             result = z + 1;
