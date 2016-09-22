@@ -1,35 +1,35 @@
 /**
-  ******************************************************************************
-  * File Name          : main.c
-  * Description        : Main program body
-  ******************************************************************************
-  *
-  * COPYRIGHT(c) 2016 STMicroelectronics
-  *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
-  *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
-  *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * File Name          : main.c
+ * Description        : Main program body
+ ******************************************************************************
+ *
+ * COPYRIGHT(c) 2016 STMicroelectronics
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *   1. Redistributions of source code must retain the above copyright notice,
+ *      this list of conditions and the following disclaimer.
+ *   2. Redistributions in binary form must reproduce the above copyright notice,
+ *      this list of conditions and the following disclaimer in the documentation
+ *      and/or other materials provided with the distribution.
+ *   3. Neither the name of STMicroelectronics nor the names of its contributors
+ *      may be used to endorse or promote products derived from this software
+ *      without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ ******************************************************************************
+ */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 #include "cmsis_os.h"
@@ -78,15 +78,19 @@ osThreadId TXMotor1Handle;
 osThreadId TXMotor2Handle;
 osThreadId RXMotor1Handle;
 osThreadId RXMotor2Handle;
+osThreadId ControllerHandle;
 osMessageQId ProcessQM1Handle;
 osMessageQId ProcessQM2Handle;
-osMessageQId TransmitQHandle;
-osMessageQId ProcessQiNemoHandle;
 osMessageQId ProcessQPCHandle;
 osMessageQId TransmitM1QHandle;
 osMessageQId TransmitM2QHandle;
+osMessageQId ICommandM1QHandle;
+osMessageQId ICommandM2QHandle;
+osMessageQId PCommandM1QHandle;
+osMessageQId PCommandM2QHandle;
 osMessageQId CommandM1QHandle;
 osMessageQId CommandM2QHandle;
+osMessageQId ControllerQHandle;
 osSemaphoreId M1Handle;
 osSemaphoreId M2Handle;
 
@@ -129,6 +133,7 @@ void StartTXMotor1(void const * argument);
 void StartTXMotor2(void const * argument);
 void StartRXMotor1(void const * argument);
 void StartRXMotor2(void const * argument);
+void StartController(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -204,6 +209,16 @@ struct __attribute__((__packed__)) RXPacketStruct {
 struct RXPacketStruct RXPacket;
 uint8_t *RXPacketPTR = (uint8_t*)&RXPacket;
 
+uint8_t RX_DATA_VALID = 0;
+
+#define KILL_BRIDGE 0
+#define WRITE_ENABLE 1
+#define BRIDGE_ENABLE 2
+#define CURRENT_COMMAND 20
+#define POSITION_COMMAND 22
+#define ZERO_POSITION 8
+#define GAIN_SET 9
+
 ////////////////////////////////////////////////////////////////////////
 //(aligned(1),
 struct __attribute__((__packed__)) BaseCommandStruct {
@@ -228,6 +243,43 @@ union {
 } WORDtoBYTEBase;
 
 uint32_t CALC_CRCBase;
+
+////////////////////////////////////////////////////////////////////////
+
+struct /*__attribute__((__packed__))*/ ControlPacketStruct {
+        uint8_t M1C[2];
+        uint8_t M1P[4];
+        uint8_t M1V[4];
+
+        uint8_t M2C[2];
+        uint8_t M2P[4];
+        uint8_t M2V[4];
+
+        uint8_t ACCX[2];
+        uint8_t ACCY[2];
+        uint8_t ACCZ[2];
+        uint8_t GYRX[2];
+        uint8_t GYRY[2];
+        uint8_t GYRZ[2];
+        uint8_t TEMP;
+};
+
+struct ControlPacketStruct ControlPacket;
+//Transmit pointer PCPacketPTR with sizeof(PCPacket)
+//uint8_t *ControlPacketPTR = (uint8_t*)&ControlPacket;
+
+struct __attribute__((__packed__)) ControlBaseCommandStruct {
+        uint8_t START[2];
+        uint8_t CB;
+        uint8_t INDOFF[2];
+        uint8_t LEN;
+        uint8_t CRC1[2];
+        uint8_t DATA[4];
+        uint8_t CRC2[2];
+};
+
+struct ControlBaseCommandStruct ControlBaseCommand[30];
+struct ControlBaseCommandStruct* ControlBaseCommandPTR;
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -268,210 +320,226 @@ uint8_t count;
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
+        /* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
+        /* USER CODE END 1 */
 
-  /* MCU Configuration----------------------------------------------------------*/
+        /* MCU Configuration----------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+        /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+        HAL_Init();
 
-  /* Configure the system clock */
-  SystemClock_Config();
+        /* Configure the system clock */
+        SystemClock_Config();
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART2_UART_Init();
-  MX_USART3_UART_Init();
-  MX_UART4_Init();
+        /* Initialize all configured peripherals */
+        MX_GPIO_Init();
+        MX_DMA_Init();
+        MX_USART2_UART_Init();
+        MX_USART3_UART_Init();
+        MX_UART4_Init();
 
-  /* USER CODE BEGIN 2 */
+        /* USER CODE BEGIN 2 */
         initCRC(0); //iNemo CRC False
         initCRC(1); //Driver CRC XModem
         SetupBinarySemaphores();
-  /* USER CODE END 2 */
+        /* USER CODE END 2 */
 
-  /* USER CODE BEGIN RTOS_MUTEX */
+        /* USER CODE BEGIN RTOS_MUTEX */
         /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
+        /* USER CODE END RTOS_MUTEX */
 
-  /* Create the semaphores(s) */
-  /* definition and creation of M1 */
-  osSemaphoreDef(M1);
-  M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
+        /* Create the semaphores(s) */
+        /* definition and creation of M1 */
+        osSemaphoreDef(M1);
+        M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
 
-  /* definition and creation of M2 */
-  osSemaphoreDef(M2);
-  M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
+        /* definition and creation of M2 */
+        osSemaphoreDef(M2);
+        M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
+        /* USER CODE BEGIN RTOS_SEMAPHORES */
         /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
+        /* USER CODE END RTOS_SEMAPHORES */
 
-  /* USER CODE BEGIN RTOS_TIMERS */
+        /* USER CODE BEGIN RTOS_TIMERS */
         /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
+        /* USER CODE END RTOS_TIMERS */
 
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+        /* Create the thread(s) */
+        /* definition and creation of defaultTask */
+        osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+        defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* definition and creation of TXPC */
-  osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
-  TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
+        /* definition and creation of TXPC */
+        osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
+        TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
-  /* definition and creation of RXPC */
-  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 300);
-  RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
+        /* definition and creation of RXPC */
+        osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 300);
+        RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
-  /* definition and creation of Heartbeat */
-  osThreadDef(Heartbeat, StartHeartbeat, osPriorityRealtime, 0, 128);
-  HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
+        /* definition and creation of Heartbeat */
+        osThreadDef(Heartbeat, StartHeartbeat, osPriorityRealtime, 0, 128);
+        HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
 
-  /* definition and creation of TXMotor1 */
-  osThreadDef(TXMotor1, StartTXMotor1, osPriorityRealtime, 0, 128);
-  TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
+        /* definition and creation of TXMotor1 */
+        osThreadDef(TXMotor1, StartTXMotor1, osPriorityRealtime, 0, 128);
+        TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
 
-  /* definition and creation of TXMotor2 */
-  osThreadDef(TXMotor2, StartTXMotor2, osPriorityRealtime, 0, 128);
-  TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
+        /* definition and creation of TXMotor2 */
+        osThreadDef(TXMotor2, StartTXMotor2, osPriorityRealtime, 0, 128);
+        TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
 
-  /* definition and creation of RXMotor1 */
-  osThreadDef(RXMotor1, StartRXMotor1, osPriorityRealtime, 0, 128);
-  RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
+        /* definition and creation of RXMotor1 */
+        osThreadDef(RXMotor1, StartRXMotor1, osPriorityRealtime, 0, 128);
+        RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
 
-  /* definition and creation of RXMotor2 */
-  osThreadDef(RXMotor2, StartRXMotor2, osPriorityRealtime, 0, 128);
-  RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
+        /* definition and creation of RXMotor2 */
+        osThreadDef(RXMotor2, StartRXMotor2, osPriorityRealtime, 0, 128);
+        RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
-  /* USER CODE BEGIN RTOS_THREADS */
+        /* definition and creation of Controller */
+        osThreadDef(Controller, StartController, osPriorityRealtime, 0, 128);
+        ControllerHandle = osThreadCreate(osThread(Controller), NULL);
+
+        /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
+        /* USER CODE END RTOS_THREADS */
 
-  /* Create the queue(s) */
-  /* definition and creation of ProcessQM1 */
-  osMessageQDef(ProcessQM1, 1, uint32_t);
-  ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
+        /* Create the queue(s) */
+        /* definition and creation of ProcessQM1 */
+        osMessageQDef(ProcessQM1, 1, uint32_t);
+        ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
 
-  /* definition and creation of ProcessQM2 */
-  osMessageQDef(ProcessQM2, 1, uint32_t);
-  ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
+        /* definition and creation of ProcessQM2 */
+        osMessageQDef(ProcessQM2, 1, uint32_t);
+        ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
 
-  /* definition and creation of TransmitQ */
-  osMessageQDef(TransmitQ, 20, uint32_t);
-  TransmitQHandle = osMessageCreate(osMessageQ(TransmitQ), NULL);
+        /* definition and creation of ProcessQPC */
+        osMessageQDef(ProcessQPC, 1, uint32_t);
+        ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
 
-  /* definition and creation of ProcessQiNemo */
-  osMessageQDef(ProcessQiNemo, 1, uint32_t);
-  ProcessQiNemoHandle = osMessageCreate(osMessageQ(ProcessQiNemo), NULL);
+        /* definition and creation of TransmitM1Q */
+        osMessageQDef(TransmitM1Q, 3, uint32_t);
+        TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
 
-  /* definition and creation of ProcessQPC */
-  osMessageQDef(ProcessQPC, 1, uint32_t);
-  ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
+        /* definition and creation of TransmitM2Q */
+        osMessageQDef(TransmitM2Q, 3, uint32_t);
+        TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
 
-  /* definition and creation of TransmitM1Q */
-  osMessageQDef(TransmitM1Q, 3, uint32_t);
-  TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
+        /* definition and creation of ICommandM1Q */
+        osMessageQDef(ICommandM1Q, 1, uint32_t);
+        ICommandM1QHandle = osMessageCreate(osMessageQ(ICommandM1Q), NULL);
 
-  /* definition and creation of TransmitM2Q */
-  osMessageQDef(TransmitM2Q, 3, uint32_t);
-  TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
+        /* definition and creation of ICommandM2Q */
+        osMessageQDef(ICommandM2Q, 1, uint32_t);
+        ICommandM2QHandle = osMessageCreate(osMessageQ(ICommandM2Q), NULL);
 
-  /* definition and creation of CommandM1Q */
-  osMessageQDef(CommandM1Q, 1, uint32_t);
-  CommandM1QHandle = osMessageCreate(osMessageQ(CommandM1Q), NULL);
+        /* definition and creation of PCommandM1Q */
+        osMessageQDef(PCommandM1Q, 1, uint32_t);
+        PCommandM1QHandle = osMessageCreate(osMessageQ(PCommandM1Q), NULL);
 
-  /* definition and creation of CommandM2Q */
-  osMessageQDef(CommandM2Q, 1, uint32_t);
-  CommandM2QHandle = osMessageCreate(osMessageQ(CommandM2Q), NULL);
+        /* definition and creation of PCommandM2Q */
+        osMessageQDef(PCommandM2Q, 1, uint32_t);
+        PCommandM2QHandle = osMessageCreate(osMessageQ(PCommandM2Q), NULL);
 
-  /* USER CODE BEGIN RTOS_QUEUES */
+        /* definition and creation of CommandM1Q */
+        osMessageQDef(CommandM1Q, 1, uint32_t);
+        CommandM1QHandle = osMessageCreate(osMessageQ(CommandM1Q), NULL);
+
+        /* definition and creation of CommandM2Q */
+        osMessageQDef(CommandM2Q, 1, uint32_t);
+        CommandM2QHandle = osMessageCreate(osMessageQ(CommandM2Q), NULL);
+
+        /* definition and creation of ControllerQ */
+        osMessageQDef(ControllerQ, 1, uint32_t);
+        ControllerQHandle = osMessageCreate(osMessageQ(ControllerQ), NULL);
+
+        /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
- 
+        /* USER CODE END RTOS_QUEUES */
 
-  /* Start scheduler */
-  osKernelStart();
-  
-  /* We should never get here as control is now taken by the scheduler */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+        /* Start scheduler */
+        osKernelStart();
+
+        /* We should never get here as control is now taken by the scheduler */
+
+        /* Infinite loop */
+        /* USER CODE BEGIN WHILE */
         while (1)
         {
-  /* USER CODE END WHILE */
+                /* USER CODE END WHILE */
 
-  /* USER CODE BEGIN 3 */
+                /* USER CODE BEGIN 3 */
 
         }
-  /* USER CODE END 3 */
+        /* USER CODE END 3 */
 
 }
 
 /** System Clock Configuration
-*/
+ */
 void SystemClock_Config(void)
 {
 
-  RCC_OscInitTypeDef RCC_OscInitStruct;
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+        RCC_OscInitTypeDef RCC_OscInitStruct;
+        RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-  __HAL_RCC_PWR_CLK_ENABLE();
+        __HAL_RCC_PWR_CLK_ENABLE();
 
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+        __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = 16;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 168;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+        RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+        RCC_OscInitStruct.HSICalibrationValue = 16;
+        RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+        RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+        RCC_OscInitStruct.PLL.PLLM = 8;
+        RCC_OscInitStruct.PLL.PLLN = 168;
+        RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+        RCC_OscInitStruct.PLL.PLLQ = 4;
+        if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                                      |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+        RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+        RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+        RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+        RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+        if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
-  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+        HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+        HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-  /* SysTick_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+        /* SysTick_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
 /* UART4 init function */
 static void MX_UART4_Init(void)
 {
 
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 500000;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart4.Instance = UART4;
+        huart4.Init.BaudRate = 500000;
+        huart4.Init.WordLength = UART_WORDLENGTH_8B;
+        huart4.Init.StopBits = UART_STOPBITS_1;
+        huart4.Init.Parity = UART_PARITY_NONE;
+        huart4.Init.Mode = UART_MODE_TX_RX;
+        huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart4) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
@@ -479,18 +547,18 @@ static void MX_UART4_Init(void)
 static void MX_USART2_UART_Init(void)
 {
 
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 921600;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart2.Instance = USART2;
+        huart2.Init.BaudRate = 921600;
+        huart2.Init.WordLength = UART_WORDLENGTH_8B;
+        huart2.Init.StopBits = UART_STOPBITS_1;
+        huart2.Init.Parity = UART_PARITY_NONE;
+        huart2.Init.Mode = UART_MODE_TX_RX;
+        huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart2) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
@@ -498,77 +566,77 @@ static void MX_USART2_UART_Init(void)
 static void MX_USART3_UART_Init(void)
 {
 
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 921600;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
+        huart3.Instance = USART3;
+        huart3.Init.BaudRate = 921600;
+        huart3.Init.WordLength = UART_WORDLENGTH_8B;
+        huart3.Init.StopBits = UART_STOPBITS_1;
+        huart3.Init.Parity = UART_PARITY_NONE;
+        huart3.Init.Mode = UART_MODE_TX_RX;
+        huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+        if (HAL_UART_Init(&huart3) != HAL_OK)
+        {
+                Error_Handler();
+        }
 
 }
 
-/** 
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void) 
+/**
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void)
 {
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
+        /* DMA controller clock enable */
+        __HAL_RCC_DMA1_CLK_ENABLE();
 
-  /* DMA interrupt init */
-  /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-  /* DMA1_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
-  /* DMA1_Stream3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-  /* DMA1_Stream4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
-  /* DMA1_Stream5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
-  /* DMA1_Stream6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+        /* DMA interrupt init */
+        /* DMA1_Stream1_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+        /* DMA1_Stream2_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+        /* DMA1_Stream3_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+        /* DMA1_Stream4_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+        /* DMA1_Stream5_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+        /* DMA1_Stream6_IRQn interrupt configuration */
+        HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
-        * Output
-        * EVENT_OUT
-        * EXTI
-*/
+/** Configure pins as
+ * Analog
+ * Input
+ * Output
+ * EVENT_OUT
+ * EXTI
+ */
 static void MX_GPIO_Init(void)
 {
 
-  GPIO_InitTypeDef GPIO_InitStruct;
+        GPIO_InitTypeDef GPIO_InitStruct;
 
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
+        /* GPIO Ports Clock Enable */
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+        __HAL_RCC_GPIOC_CLK_ENABLE();
+        __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
+        /*Configure GPIO pin Output Level */
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PB8 PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+        /*Configure GPIO pins : PB8 PB9 */
+        GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+        GPIO_InitStruct.Pull = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 
@@ -651,12 +719,12 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-    BaseType_t xHigherPriorityTaskWoken;
-    xHigherPriorityTaskWoken = pdFALSE;
+        BaseType_t xHigherPriorityTaskWoken;
+        xHigherPriorityTaskWoken = pdFALSE;
 
-    if(huart->Instance == UART4) {
-            xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-    }
+        if(huart->Instance == UART4) {
+                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
+        }
 
 //        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
 //                __HAL_USART_CLEAR_IDLEFLAG(huart);
@@ -668,21 +736,21 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 //                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
 //        }
 
-    /* If xHigherPriorityTaskWoken was set to true you
-       we should yield.  The actual macro used here is
-       port specific. portYIELD_FROM_ISR */
-    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+        /* If xHigherPriorityTaskWoken was set to true you
+           we should yield.  The actual macro used here is
+           port specific. portYIELD_FROM_ISR */
+        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 //http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
-    BaseType_t xHigherPriorityTaskWoken;
-    xHigherPriorityTaskWoken = pdFALSE;
+        BaseType_t xHigherPriorityTaskWoken;
+        xHigherPriorityTaskWoken = pdFALSE;
 
-    if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-            __HAL_USART_CLEAR_IDLEFLAG(huart);
-            xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-    }
+        if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+                __HAL_USART_CLEAR_IDLEFLAG(huart);
+                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
+        }
 
 //        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
 //                __HAL_USART_CLEAR_IDLEFLAG(huart);
@@ -694,10 +762,10 @@ void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
 //                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
 //        }
 
-    /* If xHigherPriorityTaskWoken was set to true you
-       we should yield.  The actual macro used here is
-       port specific. portYIELD_FROM_ISR */
-    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+        /* If xHigherPriorityTaskWoken was set to true you
+           we should yield.  The actual macro used here is
+           port specific. portYIELD_FROM_ISR */
+        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
 
 void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma){
@@ -752,20 +820,20 @@ void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
 void StartDefaultTask(void const * argument)
 {
 
-  /* USER CODE BEGIN 5 */
+        /* USER CODE BEGIN 5 */
         vTaskSuspend( NULL );
         /* Infinite loop */
         for(;; )
         {
                 osDelay(500);
         }
-  /* USER CODE END 5 */ 
+        /* USER CODE END 5 */
 }
 
 /* StartTXPC function */
 void StartTXPC(void const * argument)
 {
-  /* USER CODE BEGIN StartTXPC */
+        /* USER CODE BEGIN StartTXPC */
 
         memset(PCPacketPTR, 0, sizeof(PCPacket));
 
@@ -775,15 +843,6 @@ void StartTXPC(void const * argument)
         PCPacket.STOP[0] = 0x5D;
         PCPacket.STOP[1] = 0x7E;
 
-        //Example Usage
-        //PCPacket.ACCX[0] = 0xAA;
-        //PCPacket.STOP[0] = 0xAA;
-        //PCPacket.STOP[1] = 0xAA;
-        //PCPacket.StatBIT_2 = 1;
-        //PCPacket.StatBIT_8 = 1;
-        //sizeof(PCPacket);
-        //PCPacketPTR[n];
-
         uint32_t CALC_CRC;
 
         union {
@@ -792,8 +851,7 @@ void StartTXPC(void const * argument)
                 uint8_t BYTE[4];
         } WORDtoBYTE;
 
-        uint8_t *pxRxedM1Message;
-        uint8_t *pxRxedM2Message;
+        uint8_t *pxRxedMessage;
 
         uint8_t CurrentPCPacket[sizeof(PCPacket)];
 
@@ -803,11 +861,11 @@ void StartTXPC(void const * argument)
                 //xSemaphoreTake( PCTXHandle,  portMAX_DELAY );
                 //memset(PCPacket.M1C, 0, 33); //NB: Don't overwrite status bits
 
-                if(xQueueReceive( ProcessQM1Handle, &pxRxedM1Message, 0 )) {
-                		memcpy(PCPacket.M1C, pxRxedM1Message, 10);
+                if(xQueuePeek( ProcessQM1Handle, &pxRxedMessage, 0 )) {
+                        memcpy(PCPacket.M1C, pxRxedMessage, 10);
                 }
-                if(xQueueReceive( ProcessQM2Handle, &pxRxedM2Message, 0 )) {
-                        memcpy(PCPacket.M2C, pxRxedM2Message, 10);
+                if(xQueuePeek( ProcessQM2Handle, &pxRxedMessage, 0 )) {
+                        memcpy(PCPacket.M2C, pxRxedMessage, 10);
                 }
 
                 memcpy(CurrentPCPacket, PCPacketPTR, sizeof(PCPacket));
@@ -833,13 +891,13 @@ void StartTXPC(void const * argument)
 
                 osDelay(5);
         }
-  /* USER CODE END StartTXPC */
+        /* USER CODE END StartTXPC */
 }
 
 /* StartRXPC function */
 void StartRXPC(void const * argument)
 {
-  /* USER CODE BEGIN StartRXPC */
+        /* USER CODE BEGIN StartRXPC */
 
         //From PC
 
@@ -888,8 +946,8 @@ void StartRXPC(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-        		HAL_UART_Receive_DMA(&huart4, RXBufPC, sizeof(RXPacket));
-        		//HAL_DMA_Start(&hdma_uart4_rx, (uint32_t)(&(UART4->DR)), (uint32_t)(&RXBufPC), sizeof(RXPacket));
+                HAL_UART_Receive_DMA(&huart4, RXBufPC, sizeof(RXPacket));
+                //HAL_DMA_Start(&hdma_uart4_rx, (uint32_t)(&(UART4->DR)), (uint32_t)(&RXBufPC), sizeof(RXPacket));
                 if(xSemaphoreTake( PCRXHandle, portMAX_DELAY ) == pdTRUE);
 
                 rcvdCount = sizeof(RXPacket);
@@ -903,57 +961,47 @@ void StartRXPC(void const * argument)
                 if(START_INDEX>=0) {
 
                         memcpy(RXPacketPTR, &RXBufPC[START_INDEX], RXPacketLen);
+                        RX_DATA_VALID = 0;
 
                         WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
                         WORDtoBYTE.BYTE[0] = RXPacket.CRCCheck[1];
                         CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, 18, 0); //Check entire data CRC
 
                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                RX_DATA_VALID = 1;
 
                                 switch(RXPacket.OPCODE) {
-                                case 0: //Kill Bridge
+                                case KILL_BRIDGE:
                                         BaseCommandCompile(RXPacket.OPCODE, 0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
                                         BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
                                         xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
                                         xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 1: //Write Enable
+                                case WRITE_ENABLE:
                                         BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
                                         BaseCommandCompile(RXPacket.OPCODE, 0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
                                         xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
                                         xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 2: //Enable Bridge
+                                case BRIDGE_ENABLE:
                                         BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
                                         BaseCommandCompile(RXPacket.OPCODE, 0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
                                         xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
                                         xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 20: //Current Command
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
-                                        xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
+                                case CURRENT_COMMAND:
 
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
-                                        BaseCommandCompile(RXPacket.OPCODE+1, 0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
-                                        xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 22: //Position Command
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
-                                        xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
+                                case POSITION_COMMAND:
 
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
-                                        BaseCommandCompile(RXPacket.OPCODE+1, 0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
-                                        xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 8: //Zero Position
+                                case ZERO_POSITION:
                                         BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
                                         BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x00, ZERO_POSITION_DATA, 2, 0);
                                         xQueueOverwrite( CommandM1QHandle, &BaseCommandPTR);
                                         xQueueOverwrite( CommandM2QHandle, &BaseCommandPTR);
                                         break;
-                                case 9: //Gain Set
+                                case GAIN_SET:
                                         if(RXPacket.StatBIT_1 == 0) {
                                                 BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x01, GAIN_SET_0_DATA, 2, 0);
                                         }
@@ -972,50 +1020,49 @@ void StartRXPC(void const * argument)
 
 
         }
-  /* USER CODE END StartRXPC */
+        /* USER CODE END StartRXPC */
 }
 
 /* StartHeartbeat function */
 void StartHeartbeat(void const * argument)
 {
-  /* USER CODE BEGIN StartHeartbeat */
+        /* USER CODE BEGIN StartHeartbeat */
 
 
         /* Infinite loop */
         for(;; )
         {
-            //Read Current
-            BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
-            BaseCommandPTR = &BaseCommand[5];
-            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                //Read Current
+                BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
+                BaseCommandPTR = &BaseCommand[5];
+                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-            //Read Position
-            BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
-            BaseCommandPTR = &BaseCommand[6];
-            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                //Read Position
+                BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
+                BaseCommandPTR = &BaseCommand[6];
+                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-            //Read Velocity
-            BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
-            BaseCommandPTR = &BaseCommand[7];
-            xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-            xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                //Read Velocity
+                BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
+                BaseCommandPTR = &BaseCommand[7];
+                xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-            xSemaphoreGive( TXMotorM1Handle );
-            xSemaphoreGive( TXMotorM2Handle );
+                xSemaphoreGive( TXMotorM1Handle );
+                xSemaphoreGive( TXMotorM2Handle );
 
-            osDelay(Ts);
+                osDelay(Ts);
         }
-  /* USER CODE END StartHeartbeat */
+        /* USER CODE END StartHeartbeat */
 }
 
 /* StartTXMotor1 function */
 void StartTXMotor1(void const * argument)
 {
-  /* USER CODE BEGIN StartTXMotor1 */
+        /* USER CODE BEGIN StartTXMotor1 */
         uint8_t *pxRxedMessage;
-        uint32_t i;
         /* Infinite loop */
         for(;; )
         {
@@ -1024,34 +1071,36 @@ void StartTXMotor1(void const * argument)
                 memset(RXBufM1, 0, sizeof(RXBufM1));
                 HAL_UART_Receive_DMA(&huart2, RXBufM1, sizeof(RXBufM1));
 
-                //vTaskSuspendAll ();
                 while(uxQueueMessagesWaiting( TransmitM1QHandle )) {
                         // Receive a message on the created queue. Block 5.
                         xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
                         TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0])); //TODO sizing??
                         //while(huart2.gState != HAL_UART_STATE_READY);
-                        //taskENTER_CRITICAL();
-                        //i = 0;
-                        //while(i<20000){i++;asm("");}
-                        //taskEXIT_CRITICAL();
                         osDelay(1);
                 }
 
-                  if(xQueueReceive( CommandM1QHandle, &( pxRxedMessage ), 0)){
-                  TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                  }
+                if(xQueueReceive( CommandM1QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                }
 
-                xSemaphoreGive( RXMotorM1Handle );
+                else if(xQueueReceive( ICommandM1QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                }
+
+                else (xQueueReceive( PCommandM1QHandle, &( pxRxedMessage ), 0)){
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                }
+
+                        xSemaphoreGive( RXMotorM1Handle );
         }
-  /* USER CODE END StartTXMotor1 */
+        /* USER CODE END StartTXMotor1 */
 }
 
 /* StartTXMotor2 function */
 void StartTXMotor2(void const * argument)
 {
-  /* USER CODE BEGIN StartTXMotor2 */
+        /* USER CODE BEGIN StartTXMotor2 */
         uint8_t *pxRxedMessage;
-        uint32_t i;
         /* Infinite loop */
         for(;; )
         {
@@ -1060,35 +1109,38 @@ void StartTXMotor2(void const * argument)
                 memset(RXBufM2, 0, sizeof(RXBufM2));
                 HAL_UART_Receive_DMA(&huart3, RXBufM2, sizeof(RXBufM2));
 
-                //vTaskSuspendAll ();
                 while(uxQueueMessagesWaiting( TransmitM2QHandle )) {
                         // Receive a message on the created queue. Block 5.
                         xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
                         TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
                         //while(huart3.gState != HAL_UART_STATE_READY);
-                        //taskENTER_CRITICAL();
-                        //i = 0;
-                        //while(i<20000){i++;asm("");}
-                        //taskEXIT_CRITICAL();
                         osDelay(1);
                 }
 
-                if(xQueueReceive( CommandM2QHandle, &( pxRxedMessage ), 0)){
-                TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                if(xQueueReceive( CommandM2QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
                 }
 
-                xSemaphoreGive( RXMotorM2Handle );
+                else if(xQueueReceive( ICommandM2QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                }
+
+                else (xQueueReceive( PCommandM2QHandle, &( pxRxedMessage ), 0)){
+                        TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                }
+
+                        xSemaphoreGive( RXMotorM2Handle );
         }
-  /* USER CODE END StartTXMotor2 */
+        /* USER CODE END StartTXMotor2 */
 }
 
 /* StartRXMotor1 function */
 void StartRXMotor1(void const * argument)
 {
-  /* USER CODE BEGIN StartRXMotor1 */
+        /* USER CODE BEGIN StartRXMotor1 */
 
-        uint8_t PCBufM1[10];
-        uint32_t *PCBufM1PTR;
+        uint8_t PCBuf[10];
+        uint32_t *PCBufPTR;
 
 
         uint8_t OPCODE;
@@ -1146,7 +1198,7 @@ void StartRXMotor1(void const * argument)
 
                 if(rcvdCount>0) {
 
-                		INDEX_SIZE = findMultipleBytes(RXBufM1, rcvdCount, START_BYTE, START_SIZE, INDEX, sizeof(INDEX));
+                        INDEX_SIZE = findMultipleBytes(RXBufM1, rcvdCount, START_BYTE, START_SIZE, INDEX, sizeof(INDEX));
 
                         for(int i=0; i<INDEX_SIZE; i++) {
                                 OPCODE = (RXBufM1[INDEX[i]+2] & 0b00111100)>>2;
@@ -1162,7 +1214,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
                                         CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM1, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_1 = 1;
                                         }
                                         break;
@@ -1173,7 +1225,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
                                         CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM1, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_2 = 1;
                                         }
                                         break;
@@ -1184,7 +1236,7 @@ void StartRXMotor1(void const * argument)
                                         WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
                                         CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM1, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_3 = 1;
                                         }
                                         break;
@@ -1195,9 +1247,9 @@ void StartRXMotor1(void const * argument)
                 }
 
 
-                PCBufM1PTR = &PCBufM1;
+                PCBufPTR = &PCBuf;
                 if(PCPacket.StatBIT_1 || PCPacket.StatBIT_2 || PCPacket.StatBIT_3) {
-                        xQueueSend( ProcessQM1Handle, &PCBufM1PTR, ( TickType_t ) 5 );
+                        xQueueSend( ProcessQM1Handle, &PCBufPTR, ( TickType_t ) 5 );
                 }
 
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
@@ -1221,16 +1273,16 @@ void StartRXMotor1(void const * argument)
                 // 0001 0101->0001 0110
                 // 0x15->0x16
         }
-  /* USER CODE END StartRXMotor1 */
+        /* USER CODE END StartRXMotor1 */
 }
 
 /* StartRXMotor2 function */
 void StartRXMotor2(void const * argument)
 {
-  /* USER CODE BEGIN StartRXMotor2 */
+        /* USER CODE BEGIN StartRXMotor2 */
 
-        uint8_t PCBufM2[10];
-        uint32_t *PCBufM2PTR;
+        uint8_t PCBuf[10];
+        uint32_t *PCBufPTR;
 
         uint8_t OPCODE;
         uint8_t START_BYTE[2] = {0xA5, 0xFF};
@@ -1304,7 +1356,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = CURRENTrx.CRC2[1];
                                         CALC_CRC = crcCalc(CURRENTrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM2, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 0, CURRENTrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_4 = 1;
                                                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
@@ -1316,7 +1368,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = POSITIONrx.CRC2[1];
                                         CALC_CRC = crcCalc(POSITIONrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM2, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 2, POSITIONrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_5 = 1;
                                                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
@@ -1328,7 +1380,7 @@ void StartRXMotor2(void const * argument)
                                         WORDtoBYTE.BYTE[0] = VELOCITYrx.CRC2[1];
                                         CALC_CRC = crcCalc(VELOCITYrx.DATA, 0, DATA_SIZE, 1);
                                         if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                                appendBytes(PCBufM2, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
+                                                appendBytes(PCBuf, 10, 2 + 4, VELOCITYrx.DATA, 0, DATA_SIZE);
                                                 PCPacket.StatBIT_6 = 1;
                                                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                                         }
@@ -1340,78 +1392,126 @@ void StartRXMotor2(void const * argument)
 
                 }
 
-                PCBufM2PTR = &PCBufM2;
+                PCBufPTR = &PCBuf;
                 if(PCPacket.StatBIT_4 || PCPacket.StatBIT_5 || PCPacket.StatBIT_6) {
-                        xQueueSend( ProcessQM2Handle, &PCBufM2PTR, ( TickType_t ) 5 );
+                        xQueueSend( ProcessQM2Handle, &PCBufPTR, ( TickType_t ) 5 );
                         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
 
         }
-  /* USER CODE END StartRXMotor2 */
+        /* USER CODE END StartRXMotor2 */
+}
+
+/* StartController function */
+void StartController(void const * argument)
+{
+        /* USER CODE BEGIN StartController */
+        /* Infinite loop */
+        for(;; )
+        {
+                //Data from Drivers
+                if(xQueuePeek(ProcessQM1Handle, &pxRxedMessage, 0 )) {
+                        memcpy(ControlPacket.M1C, pxRxedMessage, 10);
+                }
+                if(xQueuePeek(ProcessQM2Handle, &pxRxedMessage, 0 )) {
+                        memcpy(ControlPacket.M2C, pxRxedMessage, 10);
+                }
+
+                //Data from PC
+                //RXPacketPTR; RXPacket;
+                if(RX_DATA_VALID == 1) {
+                        switch(RXPacket.OPCODE) {
+                        case CURRENT_COMMAND:
+                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
+                                xQueueOverwrite( ICommandM1QHandle, &ControlBaseCommandPTR);
+
+                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE+1];
+                                BaseCommandCompile(RXPacket.OPCODE+1, 0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
+                                xQueueOverwrite( ICommandM2QHandle, &ControlBaseCommandPTR);
+                                break;
+                        case POSITION_COMMAND:
+                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE];
+                                BaseCommandCompile(RXPacket.OPCODE, 0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
+                                xQueueOverwrite( PCommandM1QHandle, &ControlBaseCommandPTR);
+
+                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE+1];
+                                BaseCommandCompile(RXPacket.OPCODE+1, 0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
+                                xQueueOverwrite( PCommandM2QHandle, &ControlBaseCommandPTR);
+                                break;
+                        default:
+                                break;
+                        }
+
+                }
+
+                osDelay(5);
+        }
+        /* USER CODE END StartController */
 }
 
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM1 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM1 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 /* USER CODE BEGIN Callback 0 */
 
 /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM1) {
-    HAL_IncTick();
-  }
+        if (htim->Instance == TIM1) {
+                HAL_IncTick();
+        }
 /* USER CODE BEGIN Callback 1 */
 
 /* USER CODE END Callback 1 */
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @param  None
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @param  None
+ * @retval None
+ */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler */
+        /* USER CODE BEGIN Error_Handler */
         /* User can add his own implementation to report the HAL error return state */
         while(1)
         {
         }
-  /* USER CODE END Error_Handler */ 
+        /* USER CODE END Error_Handler */
 }
 
 #ifdef USE_FULL_ASSERT
 
 /**
-   * @brief Reports the name of the source file and the source line number
-   * where the assert_param error has occurred.
-   * @param file: pointer to the source file name
-   * @param line: assert_param error line source number
-   * @retval None
-   */
+ * @brief Reports the name of the source file and the source line number
+ * where the assert_param error has occurred.
+ * @param file: pointer to the source file name
+ * @param line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t* file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
+        /* USER CODE BEGIN 6 */
         /* User can add his own implementation to report the file name and line number,
            ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+        /* USER CODE END 6 */
 
 }
 
 #endif
 
 /**
-  * @}
-  */ 
+ * @}
+ */
 
 /**
-  * @}
-*/ 
+ * @}
+ */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
