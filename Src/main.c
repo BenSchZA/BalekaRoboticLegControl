@@ -96,53 +96,26 @@ osSemaphoreId M2Handle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+
 uint8_t Ts = 5; //Sampling time in ms
 
 uint8_t RXBufPC[50];
 uint8_t RXBufM1[50];
 uint8_t RXBufM2[50];
 
-/* WHAT ARE ALL THE USARTS AND TIMERS USED FOR AND WHICH PINS DO THEY USE?
- *
- * USART1 = COMMS between the PC and STM	---		PB6 (TX)	 PB7 (RX)
- * USART2 = COMMS to Motor Controller 1		---		PA2 (TX)	 PA3 (RX)
- * USART3 = COMMS to Motor Controller 2		---		PC10 (TX)    PC11 (RX)
- * USART6 = COMMS to iNEMO					---		PC6 (TX)	 PC7 (RX)
- *
- * TIM1 = Timer for Center Boom Encoder		---		PE9 (A)	     PE11 (B)
- * TIM2 = Timer for Pitch Encoder			---		PA15 (A)	 PB3 (B)
- * TIM3 = Used for 5ms interrupts
- * TIM4 = Timer for Linear Encoder			---		PD12 (A)     PD13 (B)
- */
-
-/* USER CODE END PV */
-
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-void Error_Handler(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_UART4_Init(void);
-void StartDefaultTask(void const * argument);
-void StartTXPC(void const * argument);
-void StartRXPC(void const * argument);
-void StartHeartbeat(void const * argument);
-void StartTXMotor1(void const * argument);
-void StartTXMotor2(void const * argument);
-void StartRXMotor1(void const * argument);
-void StartRXMotor2(void const * argument);
-void StartController(void const * argument);
-
-/* USER CODE BEGIN PFP */
-/* Private function prototypes -----------------------------------------------*/
+//Packet Op-Codes
+#define KILL_BRIDGE 0
+#define WRITE_ENABLE 1
+#define BRIDGE_ENABLE 2
+#define CURRENT_COMMAND 20
+#define POSITION_COMMAND 22
+#define ZERO_POSITION 8
+#define GAIN_SET 9
 
 ////////////////////////////////////////////////////////////////////////
+//TX Packet to PC
 
-//Packet Protocol ############################################################
 //'packed' makes sure compiler won't insert any gaps!
-//To PC
 struct __attribute__((__packed__)) TXPacketStruct {
         uint8_t START[2];
 
@@ -180,6 +153,7 @@ struct TXPacketStruct PCPacket;
 uint8_t *PCPacketPTR = (uint8_t*)&PCPacket;
 
 ////////////////////////////////////////////////////////////////////////
+//RX Packet from PC
 
 struct __attribute__((__packed__)) RXPacketStruct {
         uint8_t START[2];
@@ -211,16 +185,9 @@ uint8_t *RXPacketPTR = (uint8_t*)&RXPacket;
 
 uint8_t RX_DATA_VALID = 0;
 
-#define KILL_BRIDGE 0
-#define WRITE_ENABLE 1
-#define BRIDGE_ENABLE 2
-#define CURRENT_COMMAND 20
-#define POSITION_COMMAND 22
-#define ZERO_POSITION 8
-#define GAIN_SET 9
-
 ////////////////////////////////////////////////////////////////////////
-//(aligned(1),
+//Driver Command Compilation
+
 struct __attribute__((__packed__)) BaseCommandStruct {
         uint8_t START[2];
         uint8_t CB;
@@ -236,6 +203,7 @@ uint8_t SNIP;
 struct BaseCommandStruct BaseCommand[30];
 struct BaseCommandStruct* BaseCommandPTR;
 
+//Used for converting from word to byte array etc.
 union {
         uint32_t WORD;
         uint16_t HALFWORD;
@@ -245,6 +213,7 @@ union {
 uint32_t CALC_CRCBase;
 
 ////////////////////////////////////////////////////////////////////////
+//Controller
 
 struct /*__attribute__((__packed__))*/ ControlPacketStruct {
         uint8_t M1C[2];
@@ -282,6 +251,7 @@ struct ControlBaseCommandStruct ControlBaseCommand[30];
 struct ControlBaseCommandStruct* ControlBaseCommandPTR;
 
 ////////////////////////////////////////////////////////////////////////
+//Binary Semaphores
 
 SemaphoreHandle_t PCRXHandle;
 SemaphoreHandle_t PCTXHandle;
@@ -293,23 +263,47 @@ SemaphoreHandle_t RXMotorM2Handle;
 
 ////////////////////////////////////////////////////////////////////////
 
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+void Error_Handler(void);
+static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_UART4_Init(void);
+void StartDefaultTask(void const * argument);
+void StartTXPC(void const * argument);
+void StartRXPC(void const * argument);
+void StartHeartbeat(void const * argument);
+void StartTXMotor1(void const * argument);
+void StartTXMotor2(void const * argument);
+void StartRXMotor1(void const * argument);
+void StartRXMotor2(void const * argument);
+void StartController(void const * argument);
+
+/* USER CODE BEGIN PFP */
+/* Private function prototypes -----------------------------------------------*/
+
 void SetupBinarySemaphores(void);
 
+//Motor driver packet compilation function
 void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
+
+//Motor driver DMA commands
 void TransmitM1_DMA(uint8_t *data, uint8_t size);
 void ReceiveM1_DMA(uint8_t *data, uint8_t size);
 void TransmitM2_DMA(uint8_t *data, uint8_t size);
 void ReceiveM2_DMA(uint8_t *data, uint8_t size);
 
-//Select Call-backs functions called after Transfer complete
+//Call-back functions
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
-
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
 void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma);
-void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart);
 
-uint8_t count;
+void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart);
 
 /* USER CODE END PFP */
 
@@ -889,7 +883,7 @@ void StartTXPC(void const * argument)
                 PCPacket.CRCCheck[0] = WORDtoBYTE.BYTE[1];
                 PCPacket.CRCCheck[1] = WORDtoBYTE.BYTE[0];
 
-                osDelay(5);
+                osDelay(Ts);
         }
         /* USER CODE END StartTXPC */
 }
@@ -1249,7 +1243,7 @@ void StartRXMotor1(void const * argument)
 
                 PCBufPTR = &PCBuf;
                 if(PCPacket.StatBIT_1 || PCPacket.StatBIT_2 || PCPacket.StatBIT_3) {
-                        xQueueSend( ProcessQM1Handle, &PCBufPTR, ( TickType_t ) 5 );
+                        xQueueOverwrite( ProcessQM1Handle, &PCBufPTR;
                 }
 
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
@@ -1394,7 +1388,7 @@ void StartRXMotor2(void const * argument)
 
                 PCBufPTR = &PCBuf;
                 if(PCPacket.StatBIT_4 || PCPacket.StatBIT_5 || PCPacket.StatBIT_6) {
-                        xQueueSend( ProcessQM2Handle, &PCBufPTR, ( TickType_t ) 5 );
+                        xQueueOverwrite( ProcessQM2Handle, &PCBufPTR;
                         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
 
@@ -1445,7 +1439,7 @@ void StartController(void const * argument)
 
                 }
 
-                osDelay(5);
+                osDelay(Ts);
         }
         /* USER CODE END StartController */
 }
