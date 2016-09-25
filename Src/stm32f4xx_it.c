@@ -275,11 +275,11 @@ void TIM1_UP_TIM10_IRQHandler(void)
 void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+
   /* USER CODE END USART2_IRQn 0 */
   HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */
-  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+
   /* USER CODE END USART2_IRQn 1 */
 }
 
