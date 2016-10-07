@@ -92,17 +92,24 @@ osMessageQId PCommandM2QHandle;
 osMessageQId CommandM1QHandle;
 osMessageQId CommandM2QHandle;
 osMessageQId ControllerQHandle;
+osMessageQId ControlM1QHandle;
+osMessageQId ControlM2QHandle;
 osSemaphoreId M1Handle;
 osSemaphoreId M2Handle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-uint8_t Ts = 5; //Sampling time in ms
+//Communication Timing
+uint8_t Ts = 25; //Sampling time in 1/_X_ ms
+uint8_t Td = 3;
+//NB: #define configTICK_RATE_HZ ((TickType_t)_X_000) in FreeRTOSConfig
 
 uint8_t RXBufPC[50];
 uint8_t RXBufM1[50];
 uint8_t RXBufM2[50];
+
+#define PI 3.141592653f
 
 //Packet Op-Codes
 #define KILL_BRIDGE 0
@@ -114,6 +121,12 @@ uint8_t RXBufM2[50];
 #define GAIN_SET 9
 #define GAIN_CHANGE_M1 10
 #define GAIN_CHANGE_M2 13
+#define CONFIG_SET 16
+
+#define CONTROL_CURRENT_M1 40
+#define CONTROL_CURRENT_M2 41
+
+#define START_CONTROL 30
 
 ////////////////////////////////////////////////////////////////////////
 //TX Packet to PC
@@ -203,7 +216,7 @@ struct __attribute__((__packed__)) BaseCommandStruct {
 
 uint8_t SNIP;
 
-struct BaseCommandStruct BaseCommand[30];
+struct BaseCommandStruct BaseCommand[50];
 struct BaseCommandStruct* BaseCommandPTR;
 
 //Used for converting from word to byte array etc.
@@ -237,21 +250,22 @@ struct /*__attribute__((__packed__))*/ ControlPacketStruct {
 };
 
 struct ControlPacketStruct ControlPacket;
-//Transmit pointer PCPacketPTR with sizeof(PCPacket)
-//uint8_t *ControlPacketPTR = (uint8_t*)&ControlPacket;
 
-struct __attribute__((__packed__)) ControlBaseCommandStruct {
-        uint8_t START[2];
-        uint8_t CB;
-        uint8_t INDOFF[2];
-        uint8_t LEN;
-        uint8_t CRC1[2];
-        uint8_t DATA[4];
-        uint8_t CRC2[2];
-};
+uint8_t START = 0;
 
-struct ControlBaseCommandStruct ControlBaseCommand[30];
-struct ControlBaseCommandStruct* ControlBaseCommandPTR;
+union {
+        float FLOAT;
+        int32_t INT32;
+        int16_t INT16;
+        uint8_t BYTE[4];
+} F2BM1;
+
+union {
+        float FLOAT;
+        int32_t INT32;
+        int16_t INT16;
+        uint8_t BYTE[4];
+} F2BM2;
 
 ////////////////////////////////////////////////////////////////////////
 //Binary Semaphores
@@ -264,9 +278,10 @@ SemaphoreHandle_t TXMotorM2Handle;
 SemaphoreHandle_t RXMotorM1Handle;
 SemaphoreHandle_t RXMotorM2Handle;
 
-////////////////////////////////////////////////////////////////////////
+SemaphoreHandle_t ControlM1Handle;
+SemaphoreHandle_t ControlM2Handle;
 
-#define PI 3.141592653f
+////////////////////////////////////////////////////////////////////////
 
 /* USER CODE END PV */
 
@@ -294,8 +309,8 @@ void StartController(void const * argument);
 void SetupBinarySemaphores(void);
 
 //Motor driver packet compilation function
-void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
-void ControlBaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN);
+void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
+//void ControlBaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN);
 
 //Motor driver DMA commands
 void TransmitM1_DMA(uint8_t *data, uint8_t size);
@@ -311,7 +326,7 @@ void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma);
 
 void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart);
 
-//Kinematics: SI Units and Degrees
+//Kinematics: SI Units and Radians
 float *ForwardKinematics(float phi1, float phi2);
 float *InverseKinematics(float r, float theta);
 
@@ -325,7 +340,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -380,7 +394,7 @@ int main(void)
   TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
   /* definition and creation of RXPC */
-  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 300);
+  osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 128);
   RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
   /* definition and creation of Heartbeat */
@@ -404,7 +418,7 @@ int main(void)
   RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
   /* definition and creation of Controller */
-  osThreadDef(Controller, StartController, osPriorityRealtime, 0, 128);
+  osThreadDef(Controller, StartController, osPriorityRealtime, 0, 500);
   ControllerHandle = osThreadCreate(osThread(Controller), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -460,14 +474,22 @@ int main(void)
   osMessageQDef(ControllerQ, 1, uint32_t);
   ControllerQHandle = osMessageCreate(osMessageQ(ControllerQ), NULL);
 
+  /* definition and creation of ControlM1Q */
+  osMessageQDef(ControlM1Q, 1, uint32_t);
+  ControlM1QHandle = osMessageCreate(osMessageQ(ControlM1Q), NULL);
+
+  /* definition and creation of ControlM2Q */
+  osMessageQDef(ControlM2Q, 1, uint32_t);
+  ControlM2QHandle = osMessageCreate(osMessageQ(ControlM2Q), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
- 
+
 
   /* Start scheduler */
   osKernelStart();
-  
+
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -585,10 +607,10 @@ static void MX_USART3_UART_Init(void)
 
 }
 
-/** 
+/**
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void) 
+static void MX_DMA_Init(void)
 {
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -615,9 +637,9 @@ static void MX_DMA_Init(void)
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
+/** Configure pins as
+        * Analog
+        * Input
         * Output
         * EVENT_OUT
         * EXTI
@@ -654,14 +676,20 @@ void SetupBinarySemaphores(void){
         TXMotorM2Handle = xSemaphoreCreateBinary();
         RXMotorM1Handle = xSemaphoreCreateBinary();
         RXMotorM2Handle = xSemaphoreCreateBinary();
+
+        ControlM1Handle = xSemaphoreCreateBinary();
+        ControlM2Handle = xSemaphoreCreateBinary();
 }
 
-void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
+void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
         memset(&BaseCommand[n], 0, sizeof(BaseCommand[0]));
+
+        //ComBits = 0x02 for set and 0x00 for read
+        //SeqBits = 0bXXXX according to op-code
 
         BaseCommand[n].START[0] = 0xA5;
         BaseCommand[n].START[1] = 0x3F;
-        BaseCommand[n].CB = CB;
+        BaseCommand[n].CB = (SeqBits<<2 | ComBits);
         BaseCommand[n].INDOFF[0] = INDOFF1;
         BaseCommand[n].INDOFF[1] = INDOFF2;
         BaseCommand[n].LEN = LEN;
@@ -693,42 +721,42 @@ void BaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2,
         }
 }
 
-void ControlBaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
-        memset(&ControlBaseCommand[n], 0, sizeof(ControlBaseCommand[0]));
-
-        ControlBaseCommand[n].START[0] = 0xA5;
-        ControlBaseCommand[n].START[1] = 0x3F;
-        ControlBaseCommand[n].CB = CB;
-        ControlBaseCommand[n].INDOFF[0] = INDOFF1;
-        ControlBaseCommand[n].INDOFF[1] = INDOFF2;
-        ControlBaseCommand[n].LEN = LEN;
-        CALC_CRCBase = crcCalc(ControlBaseCommand[n].START, 0, 6, 1);
-        WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-        ControlBaseCommand[n].CRC1[0] = WORDtoBYTEBase.BYTE[1];
-        ControlBaseCommand[n].CRC1[1] = WORDtoBYTEBase.BYTE[0];
-
-        if(DATA != NULL) {
-                for(int i = 0; i<LEN*2; i++) {
-                        ControlBaseCommand[n].DATA[i] = DATA[i];
-                }
-                CALC_CRCBase = crcCalc(ControlBaseCommand[n].DATA, 0, LEN*2, 1);
-                WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-                ControlBaseCommand[n].CRC2[0] = WORDtoBYTEBase.BYTE[1];
-                ControlBaseCommand[n].CRC2[1] = WORDtoBYTEBase.BYTE[0];
-        }
-
-        SNIP = SNIP_LEN;
-
-        memcpy(&ControlBaseCommand[n].DATA[4-SNIP], ControlBaseCommand[n].CRC2, 2);
-
-        if(SNIP==2) {
-                memset(&ControlBaseCommand[n].CRC2, 0, 2);
-        }
-        if(SNIP==4) {
-                memset(&ControlBaseCommand[n].DATA, 0, 4);
-                memset(&ControlBaseCommand[n].CRC2, 0, 2);
-        }
-}
+//void ControlBaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
+//        memset(&ControlBaseCommand[n], 0, sizeof(ControlBaseCommand[0]));
+//
+//        ControlBaseCommand[n].START[0] = 0xA5;
+//        ControlBaseCommand[n].START[1] = 0x3F;
+//        ControlBaseCommand[n].CB = CB;
+//        ControlBaseCommand[n].INDOFF[0] = INDOFF1;
+//        ControlBaseCommand[n].INDOFF[1] = INDOFF2;
+//        ControlBaseCommand[n].LEN = LEN;
+//        CALC_CRCBase = crcCalc(ControlBaseCommand[n].START, 0, 6, 1);
+//        WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
+//        ControlBaseCommand[n].CRC1[0] = WORDtoBYTEBase.BYTE[1];
+//        ControlBaseCommand[n].CRC1[1] = WORDtoBYTEBase.BYTE[0];
+//
+//        if(DATA != NULL) {
+//                for(int i = 0; i<LEN*2; i++) {
+//                        ControlBaseCommand[n].DATA[i] = DATA[i];
+//                }
+//                CALC_CRCBase = crcCalc(ControlBaseCommand[n].DATA, 0, LEN*2, 1);
+//                WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
+//                ControlBaseCommand[n].CRC2[0] = WORDtoBYTEBase.BYTE[1];
+//                ControlBaseCommand[n].CRC2[1] = WORDtoBYTEBase.BYTE[0];
+//        }
+//
+//        SNIP = SNIP_LEN;
+//
+//        memcpy(&ControlBaseCommand[n].DATA[4-SNIP], ControlBaseCommand[n].CRC2, 2);
+//
+//        if(SNIP==2) {
+//                memset(&ControlBaseCommand[n].CRC2, 0, 2);
+//        }
+//        if(SNIP==4) {
+//                memset(&ControlBaseCommand[n].DATA, 0, 4);
+//                memset(&ControlBaseCommand[n].CRC2, 0, 2);
+//        }
+//}
 
 void TransmitM1_DMA(uint8_t *data, uint8_t size){
         /* Start the transmission - an interrupt is generated when the transmission
@@ -784,32 +812,33 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 }
 
 //http://www.riuson.com/blog/post/stm32-hal-uart-dma-rx-variable-length
-void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
-        BaseType_t xHigherPriorityTaskWoken;
-        xHigherPriorityTaskWoken = pdFALSE;
-
-        if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-                __HAL_USART_CLEAR_IDLEFLAG(huart);
-                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-        }
-
-//        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+//void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart){
+//        BaseType_t xHigherPriorityTaskWoken;
+//        xHigherPriorityTaskWoken = pdFALSE;
+//
+//        if(huart->Instance == UART4 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
 //                __HAL_USART_CLEAR_IDLEFLAG(huart);
-//                xSemaphoreGiveFromISR( RXMotorM1Handle, &xHigherPriorityTaskWoken );
+//                xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
 //        }
 //
-//        if(huart->Instance == USART3 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-//                __HAL_USART_CLEAR_IDLEFLAG(huart);
-//                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
-//        }
-
-        /* If xHigherPriorityTaskWoken was set to true you
-           we should yield.  The actual macro used here is
-           port specific. portYIELD_FROM_ISR */
-        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
-}
+////        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+////                __HAL_USART_CLEAR_IDLEFLAG(huart);
+////                xSemaphoreGiveFromISR( RXMotorM1Handle, &xHigherPriorityTaskWoken );
+////        }
+////
+////        if(huart->Instance == USART3 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
+////                __HAL_USART_CLEAR_IDLEFLAG(huart);
+////                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
+////        }
+//
+//        /* If xHigherPriorityTaskWoken was set to true you
+//           we should yield.  The actual macro used here is
+//           port specific. portYIELD_FROM_ISR */
+//        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+//}
 
 void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma){
+  __NOP();
 //	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 //    BaseType_t xHigherPriorityTaskWoken;
 //    xHigherPriorityTaskWoken = pdFALSE;
@@ -856,61 +885,69 @@ void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
 }
 
 float *ForwardKinematics(float phi1, float phi2){
-  //function [r,theta] = fcn(phi1,phi2)
+        //function [r,theta] = fcn(phi1,phi2)
 
-  uint8_t valid = 1;
-  static float ret[2];
+        uint8_t valid = 1;
+        static float ret[2];
 
-  phi1 = (phi1*2*PI)/360.0;
-  phi2 = (phi2*2*PI)/360.0;
+        //phi1 = (phi1*2*PI)/360.0; //To radians
+        //phi2 = (phi2*2*PI)/360.0;
 
-  static float l1 = 0.15; //length of upper linkage in m (measured from center of joint of 5 cm diameter)
-  static float l2 = 0.3; //length of lower linkage in m (measured from center of joint of 5 cm diameter)
+        static float l1 = 0.15; //length of upper linkage in m (measured from center of joint of 5 cm diameter)
+        static float l2 = 0.3; //length of lower linkage in m (measured from center of joint of 5 cm diameter)
 
-  ret[0] = fabs(-l1*cos((phi1 + phi2)/2.0) + sqrt(pow(l2,2) - pow(l1,2)*pow(sin((phi1 + phi2)/2.0),2))); //r
-  ret[1] = (phi1 - phi2)/2; //theta
+        ret[0] = fabs(-l1*cosf((phi1 + phi2)/2.0) + sqrt(pow(l2,2) - pow(l1,2)*pow(sinf((phi1 + phi2)/2.0),2))); //r
+        ret[1] = (phi1 - phi2)/2; //theta
 
-  ret[1] = (ret[1]*360)/(2.0*PI);
+        //ret[1] = (ret[1]*360)/(2.0*PI); //To degrees
 
-  if(valid){
-    return ret;
-  }
-  else{
-    return NULL;
-  }
+        if(phi1*360/(2*PI) > 185 || phi1*360/(2*PI) < 25){ //162 90
+          valid = 0;
+        }
+
+        if(phi2*360/(2*PI) > 185 || phi2*360/(2*PI) < 25){
+          valid = 0;
+        }
+
+        if(valid) {
+                return ret;
+        }
+        else{
+                return NULL;
+        }
 }
 
 float *InverseKinematics(float r, float theta){
-  //function [phi1,phi2] = fcn(r,theta)
+        //function [phi1,phi2] = fcn(r,theta)
 
-  uint8_t valid = 1;
-  static float ret[2];
+        uint8_t valid = 1;
+        static float ret[2];
 
-  theta = (theta*2*PI)/360.0;
+        theta = (theta*2*PI)/360.0;
 
-  static float l1 = 0.15; //length of upper linkage in m (measured from center of joint of 5 cm diameter)
-  static float l2 = 0.3; //length of lower linkage in m (measured from center of joint of 5 cm diameter)
+        static float l1 = 0.15; //length of upper linkage in m (measured from center of joint of 5 cm diameter)
+        static float l2 = 0.3; //length of lower linkage in m (measured from center of joint of 5 cm diameter)
 
-  if (r == 0){r = 0.000001;}
+        if (r == 0) {r = 0.000001; }
 
-  //float complex cmp1;
-  float cmp1 = (pow(r,2) + pow(l1,2) - pow(l2,2))/(2.0*r*l1);
+        //float complex cmp1;
+        float cmp1 = (pow(r,2) + pow(l1,2) - pow(l2,2))/(2.0*r*l1);
 
-  //float complex cmp2;
-  float cmp2 = (pow(r,2) + pow(l1,2) - pow(l2,2))/(2.0*r*l1);
+        //float complex cmp2;
+        float cmp2 = (pow(r,2) + pow(l1,2) - pow(l2,2))/(2.0*r*l1);
 
-  ret[0] = fabs(PI - acos(cmp1) + theta); //phi1
-  ret[1] = fabs(PI - acos(cmp2) - theta); //phi2
+        ret[0] = fabs(PI - acosf(cmp1) + theta); //phi1
+        ret[1] = fabs(PI - acosf(cmp2) - theta); //phi2
 
-  ret[0] = (ret[0]*360)/(2.0*PI);
-  ret[1] = (ret[1]*360)/(2.0*PI);
+        ret[0] = (ret[0]*360)/(2.0*PI);
+        ret[1] = (ret[1]*360)/(2.0*PI);
 
-  if(valid){
-    return ret;
-  }
-  else{
-    return NULL;
-  }
+        if(valid) {
+                return ret;
+        }
+        else{
+                return NULL;
+        }
 }
 
 /* USER CODE END 4 */
@@ -924,9 +961,9 @@ void StartDefaultTask(void const * argument)
         /* Infinite loop */
         for(;; )
         {
-                osDelay(500);
+                vTaskDelay(500);
         }
-  /* USER CODE END 5 */ 
+  /* USER CODE END 5 */
 }
 
 /* StartTXPC function */
@@ -960,19 +997,28 @@ void StartTXPC(void const * argument)
                 xSemaphoreTake( PCTXHandle,  portMAX_DELAY );
                 //memset(PCPacket.M1C, 0, 33); //NB: Don't overwrite status bits
 
-                if(xQueuePeek( ProcessQM1Handle, &pxRxedMessage, 0 )) {
+        	//if(xQueuePeek( ProcessQM1Handle, &pxRxedMessage, portMAX_DELAY ) || xQueuePeek( ProcessQM2Handle, &pxRxedMessage, portMAX_DELAY )){
+        	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+        		if(xQueueReceive( ProcessQM1Handle, &pxRxedMessage, 0 )) {
                         memcpy(PCPacket.M1C, pxRxedMessage, 10);
+                        //xSemaphoreGive( ControlM1Handle );
                 }
-                if(xQueuePeek( ProcessQM2Handle, &pxRxedMessage, 0 )) {
+                if(xQueueReceive( ProcessQM2Handle, &pxRxedMessage, 0 )) {
                         memcpy(PCPacket.M2C, pxRxedMessage, 10);
+                        //xSemaphoreGive( ControlM2Handle );
                 }
+
+                CALC_CRC = crcCalc(&PCPacket.M1C, 0, 34, 0);
+                WORDtoBYTE.HALFWORD = CALC_CRC;
+                PCPacket.CRCCheck[0] = WORDtoBYTE.BYTE[1];
+                PCPacket.CRCCheck[1] = WORDtoBYTE.BYTE[0];
 
                 memcpy(CurrentPCPacket, PCPacketPTR, sizeof(PCPacket));
 
-                /* Disable TXEIE and TCIE interrupts */
-                CLEAR_BIT(huart4.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
-                /* At end of Tx process, restore huart->gState to Ready */
-                huart4.gState = HAL_UART_STATE_READY;
+//                /* Disable TXEIE and TCIE interrupts */
+//                CLEAR_BIT(huart4.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
+//                /* At end of Tx process, restore huart->gState to Ready */
+//                huart4.gState = HAL_UART_STATE_READY;
 
                 HAL_UART_Transmit_DMA(&huart4, CurrentPCPacket, sizeof(PCPacket)); //TODO
 
@@ -982,13 +1028,9 @@ void StartTXPC(void const * argument)
                 PCPacket.StatBIT_4 = 0;
                 PCPacket.StatBIT_5 = 0;
                 PCPacket.StatBIT_6 = 0;
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 
-                CALC_CRC = crcCalc(&PCPacket.M1C, 0, 34, 0);
-                WORDtoBYTE.HALFWORD = CALC_CRC;
-                PCPacket.CRCCheck[0] = WORDtoBYTE.BYTE[1];
-                PCPacket.CRCCheck[1] = WORDtoBYTE.BYTE[0];
-
-                //osDelay(Ts);
+                //vTaskDelay(Ts);
         }
   /* USER CODE END StartTXPC */
 }
@@ -1021,6 +1063,8 @@ void StartRXPC(void const * argument)
         uint8_t GAIN_SET_0_DATA[4] = {0x00, 0x00, 0x00, 0x00};
         uint8_t GAIN_SET_1_DATA[4] = {0x08, 0x00, 0x00, 0x00};
         uint8_t ZERO_POSITION_DATA[4] = {0x08, 0x00, 0x00, 0x00};
+        uint8_t CONFIG_0_SET_DATA[2] = {0x00, 0x00};
+        uint8_t CONFIG_1_SET_DATA[2] = {0x01, 0x00};
 
         ////////////////////////////////////////////////////////////////////////
 
@@ -1047,105 +1091,132 @@ void StartRXPC(void const * argument)
         {
                 HAL_UART_Receive_DMA(&huart4, RXBufPC, sizeof(RXPacket));
                 //HAL_DMA_Start(&hdma_uart4_rx, (uint32_t)(&(UART4->DR)), (uint32_t)(&RXBufPC), sizeof(RXPacket));
-                if(xSemaphoreTake( PCRXHandle, portMAX_DELAY ) == pdTRUE);
+                if(xSemaphoreTake( PCRXHandle, portMAX_DELAY ) == pdTRUE) {
 
-                rcvdCount = sizeof(RXPacket);
-                //rcvdCount = sizeof(RXBufPC) - huart4.hdmarx->Instance->NDTR;
-                //HAL_UART_EndDMA_RX(&huart4);
+                        rcvdCount = sizeof(RXPacket);
+                        //rcvdCount = sizeof(RXBufPC) - huart4.hdmarx->Instance->NDTR;
+                        //HAL_UART_EndDMA_RX(&huart4);
 
-                //xQueueReset(TransmitM1QHandle);
-                //xQueueReset(TransmitM2QHandle);
+                        //xQueueReset(TransmitM1QHandle);
+                        //xQueueReset(TransmitM2QHandle);
 
-                START_INDEX = findBytes(RXBufPC, rcvdCount, RXPacket.START, 2, 1);
-                if(START_INDEX>=0) {
+                        START_INDEX = findBytes(RXBufPC, rcvdCount, RXPacket.START, 2, 1);
+                        if(START_INDEX>=0) {
 
-                        memcpy(RXPacketPTR, &RXBufPC[START_INDEX], RXPacketLen);
-                        RX_DATA_VALID = 0;
+                                memcpy(RXPacketPTR, &RXBufPC[START_INDEX], RXPacketLen);
+                                RX_DATA_VALID = 0;
 
-                        WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
-                        WORDtoBYTE.BYTE[0] = RXPacket.CRCCheck[1];
-                        CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, 18, 0); //Check entire data CRC
+                                WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
+                                WORDtoBYTE.BYTE[0] = RXPacket.CRCCheck[1];
+                                CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, 18, 0); //Check entire data CRC
 
-                        if(WORDtoBYTE.HALFWORD==CALC_CRC) {
-                                RX_DATA_VALID = 1;
+                                if(WORDtoBYTE.HALFWORD==CALC_CRC) {
+                                        RX_DATA_VALID = 1;
+                                        START = 0;
+                                        switch(RXPacket.OPCODE) {
+                                        case KILL_BRIDGE:
+                                                START = 0;
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0001, 0x02, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case WRITE_ENABLE:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0010, 0x02, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case BRIDGE_ENABLE:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0100, 0x02, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case CURRENT_COMMAND:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0011, 0x02, 0x45, 0x02, RXPacket.M1C, 2, 0);
+                                                xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR);
 
-                                switch(RXPacket.OPCODE) {
-                                case KILL_BRIDGE:
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x06, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        break;
-                                case WRITE_ENABLE:
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x0A, 0x07, 0x00, WRITE_ENABLE_DATA, 1, 2);
-                                        xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        break;
-                                case BRIDGE_ENABLE:
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x12, 0x01, 0x00, BRIDGE_ENABLE_DATA, 1, 2);
-                                        xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        break;
-                                case CURRENT_COMMAND:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                                BaseCommandCompile(RXPacket.OPCODE+1, 0b0011, 0x02, 0x45, 0x02, RXPacket.M2C, 2, 0);
+                                                xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR);
+                                                break;
+                                        case POSITION_COMMAND:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b1010, 0x02, 0x45, 0x00, RXPacket.M1P, 2, 0);
+                                                xQueueOverwrite( PCommandM1QHandle, &BaseCommandPTR);
 
-                                        break;
-                                case POSITION_COMMAND:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                                BaseCommandCompile(RXPacket.OPCODE+1, 0b1010, 0x02, 0x45, 0x00, RXPacket.M2P, 2, 0);
+                                                xQueueOverwrite( PCommandM2QHandle, &BaseCommandPTR);
+                                                break;
+                                        case ZERO_POSITION:
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0000, 0x02, 0x01, 0x00, ZERO_POSITION_DATA, 2, 0);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case GAIN_SET:
+                                                if(RXPacket.StatBIT_1 == 0) {
+                                                        BaseCommandCompile(RXPacket.OPCODE, 0b0000, 0x02, 0x01, 0x01, GAIN_SET_0_DATA, 2, 0);
+                                                }
+                                                else{
+                                                        BaseCommandCompile(RXPacket.OPCODE, 0b0000, 0x02, 0x01, 0x01, GAIN_SET_1_DATA, 2, 0);
+                                                }
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case GAIN_CHANGE_M1:
+                                                //PID Position Loop
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0000, 0x02, 0x38, 0x00, RXPacket.M1C, 2, 0);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-                                        break;
-                                case ZERO_POSITION:
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x00, ZERO_POSITION_DATA, 2, 0);
-                                        xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        break;
-                                case GAIN_SET:
-                                        if(RXPacket.StatBIT_1 == 0) {
-                                                BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x01, GAIN_SET_0_DATA, 2, 0);
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                                BaseCommandCompile(RXPacket.OPCODE+1, 0b0000, 0x02, 0x38, 0x02, RXPacket.M1P, 2, 0);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+2];
+                                                BaseCommandCompile(RXPacket.OPCODE+2, 0b0000, 0x02, 0x38, 0x04, RXPacket.M2C, 2, 0);
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case GAIN_CHANGE_M2:
+                                                //PID Position Loop
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                BaseCommandCompile(RXPacket.OPCODE, 0b0000, 0x02, 0x38, 0x00, RXPacket.M1C, 2, 0);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
+                                                BaseCommandCompile(RXPacket.OPCODE+1, 0b0000, 0x02, 0x38, 0x02, RXPacket.M1P, 2, 0);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+2];
+                                                BaseCommandCompile(RXPacket.OPCODE+2, 0b0000, 0x02, 0x38, 0x04, RXPacket.M2C, 2, 0);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case CONFIG_SET:
+                                                if(RXPacket.StatBIT_2 == 0) {
+                                                        BaseCommandCompile(RXPacket.OPCODE, 0b1001, 0x02, 0xD1, 0x00, CONFIG_0_SET_DATA, 1, 2);
+                                                }
+                                                else{
+                                                        BaseCommandCompile(RXPacket.OPCODE, 0b1001, 0x02, 0xD1, 0x00, CONFIG_1_SET_DATA, 1, 2);
+                                                }
+                                                BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                                xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                                break;
+                                        case START_CONTROL:
+                                                START = 1;
+                                                break;
+                                        default:
+                                                break;
                                         }
-                                        else{
-                                                BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x01, 0x01, GAIN_SET_1_DATA, 2, 0);
-                                        }
-                                        BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-                                        xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                        break;
-                                case GAIN_CHANGE_M1:
-                                		//PID Position Loop
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-										BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x38, 0x00, RXPacket.M1C, 2, 0);
-										xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
-										BaseCommandCompile(RXPacket.OPCODE+1, 0x02, 0x38, 0x02, RXPacket.M1P, 2, 0);
-										xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+2];
-										BaseCommandCompile(RXPacket.OPCODE+2, 0x02, 0x38, 0x04, RXPacket.M2C, 2, 0);
-										xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-										break;
-                                case GAIN_CHANGE_M2:
-                                		//PID Position Loop
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
-										BaseCommandCompile(RXPacket.OPCODE, 0x02, 0x38, 0x00, RXPacket.M1C, 2, 0);
-										xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+1];
-										BaseCommandCompile(RXPacket.OPCODE+1, 0x02, 0x38, 0x02, RXPacket.M1P, 2, 0);
-										xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-
-										BaseCommandPTR = &BaseCommand[RXPacket.OPCODE+2];
-										BaseCommandCompile(RXPacket.OPCODE+2, 0x02, 0x38, 0x04, RXPacket.M2C, 2, 0);
-										xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
-                                		break;
-                                default:
-                                        break;
                                 }
                         }
+
                 }
-
-
         }
   /* USER CODE END StartRXPC */
 }
@@ -1160,38 +1231,38 @@ void StartHeartbeat(void const * argument)
         for(;; )
         {
                 //Read Current
-                BaseCommandCompile(5, 0x31, 0x10, 0x03, NULL, 1, 4);
+                BaseCommandCompile(5, 0b1100, 0x01, 0x10, 0x03, NULL, 1, 4);
                 BaseCommandPTR = &BaseCommand[5];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
                 //Read Position
-                BaseCommandCompile(6, 0x3D, 0x12, 0x00, NULL, 2, 4);
+                BaseCommandCompile(6, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
                 BaseCommandPTR = &BaseCommand[6];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
                 //Read Velocity
-                BaseCommandCompile(7, 0x15, 0x11, 0x02, NULL, 2, 4);
+                BaseCommandCompile(7, 0b0101, 0x01, 0x11, 0x02, NULL, 2, 4);
                 BaseCommandPTR = &BaseCommand[7];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
-                xSemaphoreGive( TXMotorM1Handle );
-                xSemaphoreGive( TXMotorM2Handle );
+                xSemaphoreGive(TXMotorM1Handle);
+                xSemaphoreGive(TXMotorM2Handle);
 
-                osDelay(Ts);
+                vTaskDelay(Ts);
+
+                xSemaphoreGive(PCTXHandle);
 
 //                while(uxQueueMessagesWaiting( TransmitM1QHandle )
-//                		|| uxQueueMessagesWaiting( TransmitM2QHandle )
-//                		|| uxQueueMessagesWaiting( CommandM1QHandle )
-//                		|| uxQueueMessagesWaiting( CommandM2QHandle )
-//                		|| uxQueueMessagesWaiting( ICommandM1QHandle )
-//                		|| uxQueueMessagesWaiting( ICommandM2QHandle )
-//                		|| uxQueueMessagesWaiting( PCommandM1QHandle )
-//                		|| uxQueueMessagesWaiting( PCommandM2QHandle ));
-
-                xSemaphoreGive( PCTXHandle );
+//                    || uxQueueMessagesWaiting( TransmitM2QHandle )
+//                    || uxQueueMessagesWaiting( CommandM1QHandle )
+//                    || uxQueueMessagesWaiting( CommandM2QHandle )
+//                    || uxQueueMessagesWaiting( ICommandM1QHandle )
+//                    || uxQueueMessagesWaiting( ICommandM2QHandle )
+//                    || uxQueueMessagesWaiting( PCommandM1QHandle )
+//                    || uxQueueMessagesWaiting( PCommandM2QHandle ));
         }
   /* USER CODE END StartHeartbeat */
 }
@@ -1209,31 +1280,31 @@ void StartTXMotor1(void const * argument)
                 memset(RXBufM1, 0, sizeof(RXBufM1));
                 HAL_UART_Receive_DMA(&huart2, RXBufM1, sizeof(RXBufM1));
 
+                while(uxQueueMessagesWaiting( CommandM1QHandle )) {
+                        xQueueReceive( CommandM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                        vTaskDelay(Td);
+                }
+
+                if(xQueueReceive( ICommandM1QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                        vTaskDelay(Td);
+                }
+
+                else if (xQueueReceive( PCommandM1QHandle, &( pxRxedMessage ), 0)) {
+                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                        vTaskDelay(Td);
+                }
+
                 while(uxQueueMessagesWaiting( TransmitM1QHandle )) {
                         // Receive a message on the created queue. Block 5.
                         xQueueReceive( TransmitM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
                         TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0])); //TODO sizing??
                         //while(huart2.gState != HAL_UART_STATE_READY);
-                        osDelay(1);
+                        vTaskDelay(Td);
+                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0){vTaskDelay(Td);}
+                        else{xSemaphoreGive( RXMotorM1Handle );}
                 }
-
-                while(uxQueueMessagesWaiting( CommandM1QHandle )) {
-                		xQueueReceive( CommandM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
-                }
-
-                if(xQueueReceive( ICommandM1QHandle, &( pxRxedMessage ), 0)) {
-                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
-                }
-
-                else if (xQueueReceive( PCommandM1QHandle, &( pxRxedMessage ), 0)){
-                        TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
-                }
-
-                        xSemaphoreGive( RXMotorM1Handle );
         }
   /* USER CODE END StartTXMotor1 */
 }
@@ -1243,6 +1314,7 @@ void StartTXMotor2(void const * argument)
 {
   /* USER CODE BEGIN StartTXMotor2 */
         uint8_t *pxRxedMessage;
+        TimeOut_t xTimeOut;
         /* Infinite loop */
         for(;; )
         {
@@ -1251,31 +1323,44 @@ void StartTXMotor2(void const * argument)
                 memset(RXBufM2, 0, sizeof(RXBufM2));
                 HAL_UART_Receive_DMA(&huart3, RXBufM2, sizeof(RXBufM2));
 
-                while(uxQueueMessagesWaiting( TransmitM2QHandle )) {
-                        // Receive a message on the created queue. Block 5.
-                        xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
-                        TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        //while(huart3.gState != HAL_UART_STATE_READY);
-                        osDelay(1);
-                }
-
                 while(uxQueueMessagesWaiting( CommandM2QHandle )) {
-                		xQueueReceive( CommandM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
+                        xQueueReceive( CommandM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
                         TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
+                        vTaskDelay(Td);
                 }
 
                 if(xQueueReceive( ICommandM2QHandle, &( pxRxedMessage ), 0)) {
                         TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
+                        vTaskDelay(Td);
                 }
 
-                else if(xQueueReceive( PCommandM2QHandle, &( pxRxedMessage ), 0)){
+                else if(xQueueReceive( PCommandM2QHandle, &( pxRxedMessage ), 0)) {
                         TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
-                        osDelay(1);
+                        vTaskDelay(Td);
                 }
 
-                        xSemaphoreGive( RXMotorM2Handle );
+                while(uxQueueMessagesWaiting( TransmitM2QHandle )) {
+                        // Receive a message on the created queue. Block 5.
+                        xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
+                        TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
+                        vTaskDelay(Td);
+                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0){vTaskDelay(Td);}
+                        else{xSemaphoreGive( RXMotorM2Handle );}
+//                        HAL_UART_DMAResume(&huart3);
+//                        vTaskSetTimeOutState( &xTimeOut );
+//                        while(!__HAL_USART_GET_FLAG(&huart3, USART_FLAG_IDLE) && !xTaskCheckForTimeOut( &xTimeOut, 5 ));
+//                        __HAL_USART_CLEAR_IDLEFLAG(&huart3);
+//                        HAL_UART_DMAPause(&huart3);
+//                        while(huart3.gState != HAL_UART_STATE_READY);
+
+//                        while(huart3.gState != HAL_UART_STATE_READY);
+//                        do{
+//                            volatile uint32_t tmpreg = 0x00U;
+//                            tmpreg = (&huart3)->Instance->SR;
+//                            ((void)(tmpreg));
+//                          } while(0);
+                }
+
         }
   /* USER CODE END StartTXMotor2 */
 }
@@ -1285,7 +1370,7 @@ void StartRXMotor1(void const * argument)
 {
   /* USER CODE BEGIN StartRXMotor1 */
 
-        uint8_t PCBuf[10];
+        uint8_t PCBuf[10] = {0};
         uint8_t *PCBufPTR;
 
 
@@ -1297,7 +1382,7 @@ void StartRXMotor1(void const * argument)
         uint32_t CALC_CRC;
 
         uint8_t INDEX_SIZE = 0;
-        uint8_t INDEX[5];
+        uint8_t INDEX[5] = {0};
 
         union {
                 uint32_t WORD;
@@ -1336,6 +1421,8 @@ void StartRXMotor1(void const * argument)
         {
                 //vTaskSuspend(NULL);
                 xSemaphoreTake( RXMotorM1Handle, portMAX_DELAY );
+                START_BYTE[0] = 0xA5;
+                START_BYTE[1] = 0xFF;
 
                 rcvdCount = sizeof(RXBufM1) - huart2.hdmarx->Instance->NDTR;
                 HAL_UART_EndDMA_RX(&huart2);
@@ -1393,9 +1480,13 @@ void StartRXMotor1(void const * argument)
 
 
                 PCBufPTR = &PCBuf;
-                if(PCPacket.StatBIT_1 || PCPacket.StatBIT_2 || PCPacket.StatBIT_3) {
-                        xQueueOverwrite( ProcessQM1Handle, &PCBufPTR);
+                if(PCPacket.StatBIT_1 && PCPacket.StatBIT_2 && PCPacket.StatBIT_3) {
+                        xQueueOverwrite(ProcessQM1Handle, &PCBufPTR);
                 }
+                if(PCPacket.StatBIT_1 && PCPacket.StatBIT_2 && PCPacket.StatBIT_3) {
+						xQueueOverwrite(ControlM1QHandle, &PCBufPTR);
+				}
+
 
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
                 //worst case TX blocked for 5ms and new transmission takes place, reply should be picked up
@@ -1426,7 +1517,7 @@ void StartRXMotor2(void const * argument)
 {
   /* USER CODE BEGIN StartRXMotor2 */
 
-        uint8_t PCBuf[10];
+        uint8_t PCBuf[10] = {0};
         uint8_t *PCBufPTR;
 
         uint8_t OPCODE;
@@ -1437,7 +1528,7 @@ void StartRXMotor2(void const * argument)
         uint32_t CALC_CRC;
 
         uint8_t INDEX_SIZE = 0;
-        uint8_t INDEX[5];
+        uint8_t INDEX[5] = {0};
 
         union {
                 uint32_t WORD;
@@ -1477,6 +1568,8 @@ void StartRXMotor2(void const * argument)
                 //vTaskSuspend(NULL);
 
                 xSemaphoreTake( RXMotorM2Handle, portMAX_DELAY );
+                START_BYTE[0] = 0xA5;
+                START_BYTE[1] = 0xFF;
 
                 rcvdCount = sizeof(RXBufM2) - huart3.hdmarx->Instance->NDTR;
                 HAL_UART_EndDMA_RX(&huart3);
@@ -1537,10 +1630,13 @@ void StartRXMotor2(void const * argument)
                 }
 
                 PCBufPTR = &PCBuf;
-                if(PCPacket.StatBIT_4 || PCPacket.StatBIT_5 || PCPacket.StatBIT_6) {
-                        xQueueOverwrite( ProcessQM2Handle, &PCBufPTR);
+                if(PCPacket.StatBIT_4 && PCPacket.StatBIT_5 && PCPacket.StatBIT_6) {
+                        xQueueOverwrite(ProcessQM2Handle, &PCBufPTR);
                         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
+                if(PCPacket.StatBIT_4 && PCPacket.StatBIT_5 && PCPacket.StatBIT_6) {
+                    	xQueueOverwrite(ControlM2QHandle, &PCBufPTR);
+				}
 
         }
   /* USER CODE END StartRXMotor2 */
@@ -1550,60 +1646,178 @@ void StartRXMotor2(void const * argument)
 void StartController(void const * argument)
 {
   /* USER CODE BEGIN StartController */
-		uint8_t *pxRxedMessage;
+
+        union {
+                float FLOAT;
+                int32_t INT32;
+                int16_t INT16;
+                uint8_t BYTE[4];
+        } F2B;
+
+        float *ret;
+
+        float M1C = 0;
+        float M1P = 0;
+        float M1V = 0;
+        float M2C = 0;
+        float M2P = 0;
+        float M2V = 0;
+
+        float l1 = 0.15;
+        float l2 = 0.3;
+
+        float r_fbk = 0;
+        float r_cmd = 0.3;
+        float r_d_fbk = 0;
+        float r_d_cmd = 0;
+
+        float theta_fbk = 0;
+        float theta_cmd = 0;
+        float theta_d_fbk = 0;
+        float theta_d_cmd = 0;
+
+        float phi1 = 0;
+        float dphi1 = 0;
+        float phi1_cmd = 0;
+        float phi2 = 0;
+        float dphi2 = 0;
+        float phi2_cmd = 0;
+
+        float dphi1_cmd = 0;
+        float dphi2_cmd = 0;
+
+        //Virtual compliance control
+        float JT[2][2] = {0};
+        float F[2] = {0};
+        float Tau[2] = {0};
+
+        float ks_theta = 100;
+        float kd_theta = 10;
+
+        float ks_r = 100;
+        float kd_r = 10;
+
+        float f_r = 0;
+        float f_theta = 0;
+
+        float Ki = 0.119;
+
+        float I_cmd[2] = {0};
+        float I_fbk[2] = {0};
+
+        uint8_t valid = 1;
+
+
+        uint8_t *pxRxedMessage;
         /* Infinite loop */
         for(;; )
         {
+        			//xSemaphoreTake( ControlM1Handle, portMAX_DELAY );
+        			//xSemaphoreTake( ControlM2Handle, portMAX_DELAY );
 
+//        			if(uxQueueMessagesWaiting(ControlM1QHandle) && uxQueueMessagesWaiting(ControlM2QHandle)){
+//
+//                    //Data from Drivers
+//                    if(xQueueReceive(ControlM1QHandle, &pxRxedMessage, 0 )) {
+//                            memcpy(ControlPacket.M1C, pxRxedMessage, 10);
+//                    }
+//                    if(xQueueReceive(ControlM2QHandle, &pxRxedMessage, 0 )) {
+//                            memcpy(ControlPacket.M2C, pxRxedMessage, 10);
+//                    }
 
-                //Data from Drivers
-                if(xQueuePeek(ProcessQM1Handle, &pxRxedMessage, 0 )) {
-                        memcpy(ControlPacket.M1C, pxRxedMessage, 10);
-                }
-                if(xQueuePeek(ProcessQM2Handle, &pxRxedMessage, 0 )) {
-                        memcpy(ControlPacket.M2C, pxRxedMessage, 10);
-                }
+                	if(START==1){
+                		valid = 1;
+                		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 
-                //Data from PC
-                //RXPacketPTR; RXPacket;
+//                        memcpy(F2B.BYTE, ControlPacket.M1C, 2);
+//                        I_fbk[0] = F2B.INT16/(pow(2.0,13)/60.0);
+//
+//                        memcpy(F2B.BYTE, ControlPacket.M1P, 4);
+//                        phi1 = (F2B.INT32/(4*250.0) + 1)*180.0*(2*PI/360.0);
+//
+//                        memcpy(F2B.BYTE, ControlPacket.M1V, 4);
+//                        dphi1 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+//
+//                        memcpy(F2B.BYTE, ControlPacket.M2C, 2);
+//                        I_fbk[1] = F2B.INT16/(pow(2.0,13)/60.0);
+//
+//                        memcpy(F2B.BYTE, ControlPacket.M2P, 4);
+//                        phi2 = (F2B.INT32/(4*250.0) - 1)*(-180.0)*(2*PI/360.0);
+//
+//                        memcpy(F2B.BYTE, ControlPacket.M2V, 4);
+//                        dphi2 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
 
-                if(RX_DATA_VALID == 1) {
-                	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
-                        switch(RXPacket.OPCODE) {
-                        case CURRENT_COMMAND:
-                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE];
-                                ControlBaseCommandCompile(RXPacket.OPCODE, 0x0E, 0x45, 0x00, RXPacket.M1C, 2, 0);
-                                xQueueOverwrite( ICommandM1QHandle, &ControlBaseCommandPTR);
+                		I_fbk[0] = 0;
+                		phi1 = (1/2.0)*PI;
+                		dphi1 = 0;
+                		I_fbk[1] = 0;
+						phi2 = (1/2.0)*PI;
+						dphi2 = 0;
 
-                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE+1];
-                                ControlBaseCommandCompile(RXPacket.OPCODE+1, 0x0E, 0x45, 0x00, RXPacket.M2C, 2, 0);
-                                xQueueOverwrite( ICommandM2QHandle, &ControlBaseCommandPTR);
-                                break;
-                        case POSITION_COMMAND:
-                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE];
-                                ControlBaseCommandCompile(RXPacket.OPCODE, 0x2A, 0x45, 0x00, RXPacket.M1P, 2, 0);
-                                xQueueOverwrite( PCommandM1QHandle, &ControlBaseCommandPTR);
+                        //Forward kinematic mapping
+                        ret = ForwardKinematics(phi1, phi2);
+                        if(ret == NULL){valid = 0;}
+                        r_fbk = ret[0];
+                        theta_fbk = ret[1];
 
-                                ControlBaseCommandPTR = &ControlBaseCommand[RXPacket.OPCODE+1];
-                                ControlBaseCommandCompile(RXPacket.OPCODE+1, 0x2A, 0x45, 0x00, RXPacket.M2P, 2, 0);
-                                xQueueOverwrite( PCommandM2QHandle, &ControlBaseCommandPTR);
-                                break;
-                        default:
-                                break;
-                        }
+                        //Velocity mapping
+                        r_d_fbk = dphi1*((3*sinf(phi1/2.0 + phi2/2.0))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)))
+                                  + dphi2*((3*sinf(phi1/2.0 + phi2/2))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)));
+                        theta_d_fbk = dphi1/2.0 - dphi2/2.0;
 
-                }
-                RX_DATA_VALID = 0;
+                        //Data from PC
+                        //RXPacketPTR; RXPacket;
 
-                osDelay(Ts);
+                        //Control
+                        JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+                        JT[0][1] = 0.5;
+                        JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+                        JT[1][1] = -0.5;
 
+                        //Virtual spring dampener
+                        f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd);
+                        f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd);
+
+                        F[0] = f_r;
+                        F[1] = f_theta;
+
+                        Tau[0] = JT[0][0]*F[0] + JT[0][1]*F[1];
+                        Tau[1] = JT[1][0]*F[0] + JT[1][1]*F[1];
+
+                        //Motor 1 Control
+                        I_cmd[0] = (1/Ki)*Tau[0];
+                        //I_cmd[0] = 0.5*(f_r - 2.421)/1.127;
+                        F2BM1.INT16 = I_cmd[0]*(pow(2.0,15)/60.0);
+                        BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
+                        BaseCommandCompile(CONTROL_CURRENT_M1, 0b0011, 0x02, 0x45, 0x02, F2BM1.BYTE, 2, 0);
+                        //BaseCommandCompile(CONTROL_CURRENT_M1, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
+                        if(I_cmd[0] > 30 || I_cmd[0]<-30){valid = 0;}
+                        //if(valid){xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR);}
+
+                        //Motor 2 Control
+                        I_cmd[1] = -(1/Ki)*Tau[1];
+                        //I_cmd[1] = 0.5*-(f_r - 2.421)/1.127;
+                        F2BM2.INT16 = I_cmd[1]*(pow(2.0,15)/60.0);
+                        BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
+                        BaseCommandCompile(CONTROL_CURRENT_M2, 0b0011, 0x02, 0x45, 0x02, F2BM2.BYTE, 2, 0);
+                        //BaseCommandCompile(CONTROL_CURRENT_M2, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
+                        if(I_cmd[1] > 30 || I_cmd[1]<-30){valid = 0;}
+                        //if(valid){xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR);}
+
+                        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+                        xSemaphoreGive( TXMotorM1Handle );
+                        xSemaphoreGive( TXMotorM2Handle );
+                	}
+        			//}
+
+                vTaskDelay(Ts);
         }
   /* USER CODE END StartController */
 }
 
 /**
   * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM1 interrupt took place, inside
+  * @note   This function is called  when TIM2 interrupt took place, inside
   * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
   * a global variable "uwTick" used as application time base.
   * @param  htim : TIM handle
@@ -1614,7 +1828,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /* USER CODE BEGIN Callback 0 */
 
 /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM1) {
+  if (htim->Instance == TIM2) {
     HAL_IncTick();
   }
 /* USER CODE BEGIN Callback 1 */
@@ -1634,7 +1848,7 @@ void Error_Handler(void)
         while(1)
         {
         }
-  /* USER CODE END Error_Handler */ 
+  /* USER CODE END Error_Handler */
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1659,10 +1873,10 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 /**
   * @}
-  */ 
+  */
 
 /**
   * @}
-*/ 
+*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

@@ -40,6 +40,7 @@
 
 #include "stm32f4xx_hal_usart.h"
 void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
+void prvGetRegistersFromStack( uint32_t *pulFaultStackAddress );
 
 /* USER CODE END 0 */
 
@@ -54,7 +55,7 @@ extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
 
-extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
 
 /******************************************************************************/
 /*            Cortex-M4 Processor Interruption and Exception Handlers         */ 
@@ -79,7 +80,17 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+    __asm volatile
+    (
+        " tst lr, #4                                                \n"
+        " ite eq                                                    \n"
+        " mrseq r0, msp                                             \n"
+        " mrsne r0, psp                                             \n"
+        " ldr r1, [r0, #24]                                         \n"
+        " ldr r2, handler2_address_const                            \n"
+        " bx r2                                                     \n"
+        " handler2_address_const: .word prvGetRegistersFromStack    \n"
+    );
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -256,17 +267,17 @@ void DMA1_Stream6_IRQHandler(void)
 }
 
 /**
-* @brief This function handles TIM1 update interrupt and TIM10 global interrupt.
+* @brief This function handles TIM2 global interrupt.
 */
-void TIM1_UP_TIM10_IRQHandler(void)
+void TIM2_IRQHandler(void)
 {
-  /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 0 */
+  /* USER CODE BEGIN TIM2_IRQn 0 */
 
-  /* USER CODE END TIM1_UP_TIM10_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim1);
-  /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 1 */
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
 
-  /* USER CODE END TIM1_UP_TIM10_IRQn 1 */
+  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /**
@@ -312,6 +323,36 @@ void UART4_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+void prvGetRegistersFromStack( uint32_t *pulFaultStackAddress )
+{
+	/* These are volatile to try and prevent the compiler/linker optimising them
+	away as the variables never actually get used.  If the debugger won't show the
+	values of the variables, make them global my moving their declaration outside
+	of this function. */
+	volatile uint32_t r0;
+	volatile uint32_t r1;
+	volatile uint32_t r2;
+	volatile uint32_t r3;
+	volatile uint32_t r12;
+	volatile uint32_t lr; /* Link register. */
+	volatile uint32_t pc; /* Program counter. */
+	volatile uint32_t psr;/* Program status register. */
+
+	    r0 = pulFaultStackAddress[ 0 ];
+	    r1 = pulFaultStackAddress[ 1 ];
+	    r2 = pulFaultStackAddress[ 2 ];
+	    r3 = pulFaultStackAddress[ 3 ];
+
+	    r12 = pulFaultStackAddress[ 4 ];
+	    lr = pulFaultStackAddress[ 5 ];
+	    pc = pulFaultStackAddress[ 6 ];
+	    psr = pulFaultStackAddress[ 7 ];
+
+	    /* When the following line is hit, the variables contain the register values. */
+	    for( ;; );
+}
+
 
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
