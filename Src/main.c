@@ -309,6 +309,7 @@ void StartController(void const * argument);
 void SetupBinarySemaphores(void);
 
 //Motor driver packet compilation function
+int32_t swap_int32( int32_t val );
 void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP);
 //void ControlBaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN);
 
@@ -681,6 +682,13 @@ void SetupBinarySemaphores(void){
         ControlM2Handle = xSemaphoreCreateBinary();
 }
 
+//! Byte swap int
+int32_t swap_int32( int32_t val )
+{
+    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF );
+    return (val << 16) | ((val >> 16) & 0xFFFF);
+}
+
 void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
         memset(&BaseCommand[n], 0, sizeof(BaseCommand[0]));
 
@@ -901,13 +909,13 @@ float *ForwardKinematics(float phi1, float phi2){
 
         //ret[1] = (ret[1]*360)/(2.0*PI); //To degrees
 
-        if(phi1*360/(2*PI) > 185 || phi1*360/(2*PI) < 25){ //162 90
-          valid = 0;
-        }
-
-        if(phi2*360/(2*PI) > 185 || phi2*360/(2*PI) < 25){
-          valid = 0;
-        }
+//        if(phi1*360/(2*PI) > 185 || phi1*360/(2*PI) < 25){ //162 90
+//          valid = 0;
+//        }
+//
+//        if(phi2*360/(2*PI) > 185 || phi2*360/(2*PI) < 25){
+//          valid = 0;
+//        }
 
         if(valid) {
                 return ret;
@@ -1691,11 +1699,11 @@ void StartController(void const * argument)
         float F[2] = {0};
         float Tau[2] = {0};
 
-        float ks_theta = 100;
-        float kd_theta = 10;
+        float ks_theta = 20;
+        float kd_theta = 5;
 
-        float ks_r = 100;
-        float kd_r = 10;
+        float ks_r = 200;
+        float kd_r = 30;
 
         float f_r = 0;
         float f_theta = 0;
@@ -1715,44 +1723,44 @@ void StartController(void const * argument)
         			//xSemaphoreTake( ControlM1Handle, portMAX_DELAY );
         			//xSemaphoreTake( ControlM2Handle, portMAX_DELAY );
 
-//        			if(uxQueueMessagesWaiting(ControlM1QHandle) && uxQueueMessagesWaiting(ControlM2QHandle)){
-//
-//                    //Data from Drivers
-//                    if(xQueueReceive(ControlM1QHandle, &pxRxedMessage, 0 )) {
-//                            memcpy(ControlPacket.M1C, pxRxedMessage, 10);
-//                    }
-//                    if(xQueueReceive(ControlM2QHandle, &pxRxedMessage, 0 )) {
-//                            memcpy(ControlPacket.M2C, pxRxedMessage, 10);
-//                    }
+        			if(uxQueueMessagesWaiting(ControlM1QHandle) && uxQueueMessagesWaiting(ControlM2QHandle)){
+
+                    //Data from Drivers
+                    if(xQueueReceive(ControlM1QHandle, &pxRxedMessage, 0 )) {
+                            memcpy(ControlPacket.M1C, pxRxedMessage, 10);
+                    }
+                    if(xQueueReceive(ControlM2QHandle, &pxRxedMessage, 0 )) {
+                            memcpy(ControlPacket.M2C, pxRxedMessage, 10);
+                    }
 
                 	if(START==1){
                 		valid = 1;
                 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 
-//                        memcpy(F2B.BYTE, ControlPacket.M1C, 2);
-//                        I_fbk[0] = F2B.INT16/(pow(2.0,13)/60.0);
-//
-//                        memcpy(F2B.BYTE, ControlPacket.M1P, 4);
-//                        phi1 = (F2B.INT32/(4*250.0) + 1)*180.0*(2*PI/360.0);
-//
-//                        memcpy(F2B.BYTE, ControlPacket.M1V, 4);
-//                        dphi1 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
-//
-//                        memcpy(F2B.BYTE, ControlPacket.M2C, 2);
-//                        I_fbk[1] = F2B.INT16/(pow(2.0,13)/60.0);
-//
-//                        memcpy(F2B.BYTE, ControlPacket.M2P, 4);
-//                        phi2 = (F2B.INT32/(4*250.0) - 1)*(-180.0)*(2*PI/360.0);
-//
-//                        memcpy(F2B.BYTE, ControlPacket.M2V, 4);
-//                        dphi2 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+                        memcpy(F2B.BYTE, ControlPacket.M1C, 2);
+                        I_fbk[0] = F2B.INT16/(pow(2.0,13)/60.0);
 
-                		I_fbk[0] = 0;
-                		phi1 = (1/2.0)*PI;
-                		dphi1 = 0;
-                		I_fbk[1] = 0;
-						phi2 = (1/2.0)*PI;
-						dphi2 = 0;
+                        memcpy(F2B.BYTE, ControlPacket.M1P, 4);
+                        phi1 = (F2B.INT32/(4*250.0) + 1)*180.0*(2*PI/360.0);
+
+                        memcpy(F2B.BYTE, ControlPacket.M1V, 4);
+                        dphi1 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+
+                        memcpy(F2B.BYTE, ControlPacket.M2C, 2);
+                        I_fbk[1] = F2B.INT16/(pow(2.0,13)/60.0);
+
+                        memcpy(F2B.BYTE, ControlPacket.M2P, 4);
+                        phi2 = (F2B.INT32/(4*250.0) - 1)*(-180.0)*(2*PI/360.0);
+
+                        memcpy(F2B.BYTE, ControlPacket.M2V, 4);
+                        dphi2 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+
+//                		I_fbk[0] = 0;
+//                		phi1 = (1/2.0)*PI;
+//                		dphi1 = 0;
+//                		I_fbk[1] = 0;
+//						phi2 = (1/2.0)*PI;
+//						dphi2 = 0;
 
                         //Forward kinematic mapping
                         ret = ForwardKinematics(phi1, phi2);
@@ -1781,36 +1789,40 @@ void StartController(void const * argument)
                         F[0] = f_r;
                         F[1] = f_theta;
 
-                        Tau[0] = JT[0][0]*F[0] + JT[0][1]*F[1];
-                        Tau[1] = JT[1][0]*F[0] + JT[1][1]*F[1];
+                        Tau[0] = JT[0][0]*F[0];// + JT[0][1]*F[1];
+                        Tau[1] = JT[1][0]*F[0];// + JT[1][1]*F[1];
 
                         //Motor 1 Control
-                        I_cmd[0] = (1/Ki)*Tau[0];
+                        I_cmd[0] = -(1/Ki)*Tau[0];
                         //I_cmd[0] = 0.5*(f_r - 2.421)/1.127;
-                        F2BM1.INT16 = I_cmd[0]*(pow(2.0,15)/60.0);
+                        F2BM1.INT32 = I_cmd[0]*(pow(2.0,15)/60.0);
+                        //F2BM1.INT32 = -5*(pow(2.0,15)/60.0);
+                        swap_int32( F2BM1.INT32 );
                         BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
                         BaseCommandCompile(CONTROL_CURRENT_M1, 0b0011, 0x02, 0x45, 0x02, F2BM1.BYTE, 2, 0);
                         //BaseCommandCompile(CONTROL_CURRENT_M1, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
                         if(I_cmd[0] > 30 || I_cmd[0]<-30){valid = 0;}
-                        //if(valid){xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR);}
+                        if(valid){xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR);}
 
                         //Motor 2 Control
-                        I_cmd[1] = -(1/Ki)*Tau[1];
+                        I_cmd[1] = (1/Ki)*Tau[1];
                         //I_cmd[1] = 0.5*-(f_r - 2.421)/1.127;
-                        F2BM2.INT16 = I_cmd[1]*(pow(2.0,15)/60.0);
+                        F2BM2.INT32 = I_cmd[1]*(pow(2.0,15)/60.0);
+                        //F2BM2.INT32 = 5*(pow(2.0,15)/60.0);
+                        swap_int32( F2BM2.INT32 );
                         BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
                         BaseCommandCompile(CONTROL_CURRENT_M2, 0b0011, 0x02, 0x45, 0x02, F2BM2.BYTE, 2, 0);
                         //BaseCommandCompile(CONTROL_CURRENT_M2, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
                         if(I_cmd[1] > 30 || I_cmd[1]<-30){valid = 0;}
-                        //if(valid){xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR);}
+                        if(valid){xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR);}
 
                         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
                         xSemaphoreGive( TXMotorM1Handle );
                         xSemaphoreGive( TXMotorM2Handle );
                 	}
-        			//}
+        			}
 
-                vTaskDelay(Ts);
+                //vTaskDelay(Ts);
         }
   /* USER CODE END StartController */
 }
