@@ -94,6 +94,7 @@ osMessageQId CommandM2QHandle;
 osMessageQId ControllerQHandle;
 osMessageQId ControlM1QHandle;
 osMessageQId ControlM2QHandle;
+osMessageQId ProcessQControlHandle;
 osSemaphoreId M1Handle;
 osSemaphoreId M2Handle;
 
@@ -110,6 +111,10 @@ uint8_t RXBufM1[50];
 uint8_t RXBufM2[50];
 
 #define PI 3.141592653f
+
+//Motor UART connections
+#define M1_UART huart3
+#define M2_UART huart2
 
 //Packet Op-Codes
 #define KILL_BRIDGE 0
@@ -129,6 +134,17 @@ uint8_t RXBufM2[50];
 #define START_CONTROL 30
 
 ////////////////////////////////////////////////////////////////////////
+
+uint8_t KILL_BRIDGE_DATA[2] = {0x01, 0x00};
+uint8_t WRITE_ENABLE_DATA[2] = {0x0F, 0x00};
+uint8_t BRIDGE_ENABLE_DATA[2] = {0x00, 0x00};
+uint8_t GAIN_SET_0_DATA[4] = {0x00, 0x00, 0x00, 0x00};
+uint8_t GAIN_SET_1_DATA[4] = {0x08, 0x00, 0x00, 0x00};
+uint8_t ZERO_POSITION_DATA[4] = {0x08, 0x00, 0x00, 0x00};
+uint8_t CONFIG_0_SET_DATA[2] = {0x00, 0x00};
+uint8_t CONFIG_1_SET_DATA[2] = {0x01, 0x00};
+
+////////////////////////////////////////////////////////////////////////
 //TX Packet to PC
 
 //'packed' makes sure compiler won't insert any gaps!
@@ -143,13 +159,15 @@ struct __attribute__((__packed__)) TXPacketStruct {
         uint8_t M2P[4];
         uint8_t M2V[4];
 
-        uint8_t ACCX[2];
-        uint8_t ACCY[2];
-        uint8_t ACCZ[2];
-        uint8_t GYRX[2];
-        uint8_t GYRY[2];
-        uint8_t GYRZ[2];
-        uint8_t TEMP;
+        // uint8_t ACCX[2];
+        // uint8_t ACCY[2];
+        // uint8_t ACCZ[2];
+        // uint8_t GYRX[2];
+        // uint8_t GYRY[2];
+        // uint8_t GYRZ[2];
+        // uint8_t TEMP;
+        uint8_t MISC[16];
+
         uint8_t StatBIT_1 : 1;
         uint8_t StatBIT_2 : 1;
         uint8_t StatBIT_3 : 1;
@@ -250,6 +268,16 @@ struct /*__attribute__((__packed__))*/ ControlPacketStruct {
 };
 
 struct ControlPacketStruct ControlPacket;
+
+struct __attribute__((__packed__)) ControlLogStruct {
+	float f_r;
+	float f_theta;
+	float I_cmd_0;
+	float I_cmd_1;
+};
+
+struct ControlLogStruct ControlLogPacket;
+uint8_t *ControlLogPacketPTR = (uint8_t*)&ControlLogPacket;
 
 uint8_t START = 0;
 
@@ -483,14 +511,18 @@ int main(void)
   osMessageQDef(ControlM2Q, 1, uint32_t);
   ControlM2QHandle = osMessageCreate(osMessageQ(ControlM2Q), NULL);
 
+  /* definition and creation of ProcessQControl */
+  osMessageQDef(ProcessQControl, 1, uint32_t);
+  ProcessQControlHandle = osMessageCreate(osMessageQ(ProcessQControl), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
-
+ 
 
   /* Start scheduler */
   osKernelStart();
-
+  
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -608,10 +640,10 @@ static void MX_USART3_UART_Init(void)
 
 }
 
-/**
+/** 
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void)
+static void MX_DMA_Init(void) 
 {
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -638,9 +670,9 @@ static void MX_DMA_Init(void)
 
 }
 
-/** Configure pins as
-        * Analog
-        * Input
+/** Configure pins as 
+        * Analog 
+        * Input 
         * Output
         * EVENT_OUT
         * EXTI
@@ -685,8 +717,8 @@ void SetupBinarySemaphores(void){
 //! Byte swap int
 int32_t swap_int32( int32_t val )
 {
-    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF );
-    return (val << 16) | ((val >> 16) & 0xFFFF);
+        val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF );
+        return (val << 16) | ((val >> 16) & 0xFFFF);
 }
 
 void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
@@ -770,11 +802,11 @@ void TransmitM1_DMA(uint8_t *data, uint8_t size){
         /* Start the transmission - an interrupt is generated when the transmission
            is complete. */
         //if(HAL_UART_Transmit_DMA(&huart2, data, size) != HAL_OK) { Error_Handler(); }
-        HAL_UART_Transmit_DMA(&huart2, data, size);
+        HAL_UART_Transmit_DMA(&M1_UART, data, size);
 }
 
 void ReceiveM1_DMA(uint8_t *data, uint8_t size){
-        HAL_UART_Receive_DMA(&huart2, data, size);
+        HAL_UART_Receive_DMA(&M1_UART, data, size);
         //HAL_UART_Receive(&huart2, data, size, 5);
 }
 
@@ -782,11 +814,11 @@ void TransmitM2_DMA(uint8_t *data, uint8_t size){
         /* Start the transmission - an interrupt is generated when the transmission
            is complete. */
         //if(HAL_UART_Transmit_DMA(&huart3, data, size) != HAL_OK) { Error_Handler(); }
-        HAL_UART_Transmit_DMA(&huart3, data, size);
+        HAL_UART_Transmit_DMA(&M2_UART, data, size);
 }
 
 void ReceiveM2_DMA(uint8_t *data, uint8_t size){
-        HAL_UART_Receive_DMA(&huart3, data, size);
+        HAL_UART_Receive_DMA(&M2_UART, data, size);
         //HAL_UART_Receive(&huart3, data, size, 5);
 }
 
@@ -846,7 +878,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 //}
 
 void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma){
-  __NOP();
+        __NOP();
 //	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 //    BaseType_t xHigherPriorityTaskWoken;
 //    xHigherPriorityTaskWoken = pdFALSE;
@@ -905,17 +937,17 @@ float *ForwardKinematics(float phi1, float phi2){
         static float l2 = 0.3; //length of lower linkage in m (measured from center of joint of 5 cm diameter)
 
         ret[0] = fabs(-l1*cosf((phi1 + phi2)/2.0) + sqrt(pow(l2,2) - pow(l1,2)*pow(sinf((phi1 + phi2)/2.0),2))); //r
-        ret[1] = (phi1 - phi2)/2; //theta
+        ret[1] = (phi1 - phi2)/2.0; //theta
 
         //ret[1] = (ret[1]*360)/(2.0*PI); //To degrees
 
-//        if(phi1*360/(2*PI) > 185 || phi1*360/(2*PI) < 25){ //162 90
-//          valid = 0;
-//        }
-//
-//        if(phi2*360/(2*PI) > 185 || phi2*360/(2*PI) < 25){
-//          valid = 0;
-//        }
+        if(phi1*360/(2*PI) > 185 || phi1*360/(2*PI) < 25){ //162 90
+          valid = 0;
+        }
+
+        if(phi2*360/(2*PI) > 185 || phi2*360/(2*PI) < 25){
+          valid = 0;
+        }
 
         if(valid) {
                 return ret;
@@ -971,7 +1003,7 @@ void StartDefaultTask(void const * argument)
         {
                 vTaskDelay(500);
         }
-  /* USER CODE END 5 */
+  /* USER CODE END 5 */ 
 }
 
 /* StartTXPC function */
@@ -1003,20 +1035,22 @@ void StartTXPC(void const * argument)
         for(;; )
         {
                 xSemaphoreTake( PCTXHandle,  portMAX_DELAY );
-                //memset(PCPacket.M1C, 0, 33); //NB: Don't overwrite status bits
 
-        	//if(xQueuePeek( ProcessQM1Handle, &pxRxedMessage, portMAX_DELAY ) || xQueuePeek( ProcessQM2Handle, &pxRxedMessage, portMAX_DELAY )){
-        	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
-        		if(xQueueReceive( ProcessQM1Handle, &pxRxedMessage, 0 )) {
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+
+                if(xQueueReceive( ProcessQM1Handle, &pxRxedMessage, 0 )) {
                         memcpy(PCPacket.M1C, pxRxedMessage, 10);
-                        //xSemaphoreGive( ControlM1Handle );
                 }
+
                 if(xQueueReceive( ProcessQM2Handle, &pxRxedMessage, 0 )) {
                         memcpy(PCPacket.M2C, pxRxedMessage, 10);
-                        //xSemaphoreGive( ControlM2Handle );
                 }
 
-                CALC_CRC = crcCalc(&PCPacket.M1C, 0, 34, 0);
+                if(xQueueReceive( ProcessQControlHandle, &pxRxedMessage, 0 )) {
+                        memcpy(PCPacket.MISC, pxRxedMessage, 13);
+                }
+
+                CALC_CRC = crcCalc(&PCPacket.M1C, 0, 37, 0);
                 WORDtoBYTE.HALFWORD = CALC_CRC;
                 PCPacket.CRCCheck[0] = WORDtoBYTE.BYTE[1];
                 PCPacket.CRCCheck[1] = WORDtoBYTE.BYTE[0];
@@ -1036,9 +1070,10 @@ void StartTXPC(void const * argument)
                 PCPacket.StatBIT_4 = 0;
                 PCPacket.StatBIT_5 = 0;
                 PCPacket.StatBIT_6 = 0;
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+                PCPacket.StatBIT_7 = 0;
+                PCPacket.StatBIT_8 = 0;
 
-                //vTaskDelay(Ts);
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
         }
   /* USER CODE END StartTXPC */
 }
@@ -1062,19 +1097,6 @@ void StartRXPC(void const * argument)
 
         int8_t START_INDEX = 0;
         uint32_t CALC_CRC;
-
-        ////////////////////////////////////////////////////////////////////////
-
-        uint8_t KILL_BRIDGE_DATA[2] = {0x01, 0x00};
-        uint8_t WRITE_ENABLE_DATA[2] = {0x0F, 0x00};
-        uint8_t BRIDGE_ENABLE_DATA[2] = {0x00, 0x00};
-        uint8_t GAIN_SET_0_DATA[4] = {0x00, 0x00, 0x00, 0x00};
-        uint8_t GAIN_SET_1_DATA[4] = {0x08, 0x00, 0x00, 0x00};
-        uint8_t ZERO_POSITION_DATA[4] = {0x08, 0x00, 0x00, 0x00};
-        uint8_t CONFIG_0_SET_DATA[2] = {0x00, 0x00};
-        uint8_t CONFIG_1_SET_DATA[2] = {0x01, 0x00};
-
-        ////////////////////////////////////////////////////////////////////////
 
         union {
                 uint32_t WORD;
@@ -1216,7 +1238,12 @@ void StartRXPC(void const * argument)
                                                 xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                                                 break;
                                         case START_CONTROL:
-                                                START = 1;
+                                        		if(RXPacket.StatBIT_3 == 1){
+                                        			START = 1;
+                                        		}
+                                        		else{
+                                        			START = 0;
+                                        		}
                                                 break;
                                         default:
                                                 break;
@@ -1284,9 +1311,9 @@ void StartTXMotor1(void const * argument)
         for(;; )
         {
                 xSemaphoreTake( TXMotorM1Handle, portMAX_DELAY );
-                __HAL_UART_FLUSH_DRREGISTER(&huart2);
+                __HAL_UART_FLUSH_DRREGISTER(&M1_UART);
                 memset(RXBufM1, 0, sizeof(RXBufM1));
-                HAL_UART_Receive_DMA(&huart2, RXBufM1, sizeof(RXBufM1));
+                HAL_UART_Receive_DMA(&M1_UART, RXBufM1, sizeof(RXBufM1));
 
                 while(uxQueueMessagesWaiting( CommandM1QHandle )) {
                         xQueueReceive( CommandM1QHandle, &( pxRxedMessage ), portMAX_DELAY);
@@ -1310,8 +1337,8 @@ void StartTXMotor1(void const * argument)
                         TransmitM1_DMA(pxRxedMessage, sizeof(BaseCommand[0])); //TODO sizing??
                         //while(huart2.gState != HAL_UART_STATE_READY);
                         vTaskDelay(Td);
-                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0){vTaskDelay(Td);}
-                        else{xSemaphoreGive( RXMotorM1Handle );}
+                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0) {vTaskDelay(Td); }
+                        else{xSemaphoreGive( RXMotorM1Handle ); }
                 }
         }
   /* USER CODE END StartTXMotor1 */
@@ -1327,9 +1354,9 @@ void StartTXMotor2(void const * argument)
         for(;; )
         {
                 xSemaphoreTake( TXMotorM2Handle, portMAX_DELAY );
-                __HAL_UART_FLUSH_DRREGISTER(&huart3);
+                __HAL_UART_FLUSH_DRREGISTER(&M2_UART);
                 memset(RXBufM2, 0, sizeof(RXBufM2));
-                HAL_UART_Receive_DMA(&huart3, RXBufM2, sizeof(RXBufM2));
+                HAL_UART_Receive_DMA(&M2_UART, RXBufM2, sizeof(RXBufM2));
 
                 while(uxQueueMessagesWaiting( CommandM2QHandle )) {
                         xQueueReceive( CommandM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
@@ -1352,8 +1379,8 @@ void StartTXMotor2(void const * argument)
                         xQueueReceive( TransmitM2QHandle, &( pxRxedMessage ), portMAX_DELAY);
                         TransmitM2_DMA(pxRxedMessage, sizeof(BaseCommand[0]));
                         vTaskDelay(Td);
-                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0){vTaskDelay(Td);}
-                        else{xSemaphoreGive( RXMotorM2Handle );}
+                        if(uxQueueMessagesWaiting( TransmitM2QHandle )>0) {vTaskDelay(Td); }
+                        else{xSemaphoreGive( RXMotorM2Handle ); }
 //                        HAL_UART_DMAResume(&huart3);
 //                        vTaskSetTimeOutState( &xTimeOut );
 //                        while(!__HAL_USART_GET_FLAG(&huart3, USART_FLAG_IDLE) && !xTaskCheckForTimeOut( &xTimeOut, 5 ));
@@ -1432,8 +1459,8 @@ void StartRXMotor1(void const * argument)
                 START_BYTE[0] = 0xA5;
                 START_BYTE[1] = 0xFF;
 
-                rcvdCount = sizeof(RXBufM1) - huart2.hdmarx->Instance->NDTR;
-                HAL_UART_EndDMA_RX(&huart2);
+                rcvdCount = sizeof(RXBufM1) - M1_UART.hdmarx->Instance->NDTR;
+                HAL_UART_EndDMA_RX(&M1_UART);
                 //__HAL_UART_FLUSH_DRREGISTER(&huart2);
 
                 if(rcvdCount>0) {
@@ -1492,8 +1519,8 @@ void StartRXMotor1(void const * argument)
                         xQueueOverwrite(ProcessQM1Handle, &PCBufPTR);
                 }
                 if(PCPacket.StatBIT_1 && PCPacket.StatBIT_2 && PCPacket.StatBIT_3) {
-						xQueueOverwrite(ControlM1QHandle, &PCBufPTR);
-				}
+                        xQueueOverwrite(ControlM1QHandle, &PCBufPTR);
+                }
 
 
                 //Rx A5 Rx FF Rx CMD -> Check bits 2-5 for opcode -> Move on to specific Rx
@@ -1579,8 +1606,8 @@ void StartRXMotor2(void const * argument)
                 START_BYTE[0] = 0xA5;
                 START_BYTE[1] = 0xFF;
 
-                rcvdCount = sizeof(RXBufM2) - huart3.hdmarx->Instance->NDTR;
-                HAL_UART_EndDMA_RX(&huart3);
+                rcvdCount = sizeof(RXBufM2) - M2_UART.hdmarx->Instance->NDTR;
+                HAL_UART_EndDMA_RX(&M2_UART);
                 //__HAL_UART_FLUSH_DRREGISTER(&huart3);
 
                 if(rcvdCount>0) {
@@ -1643,8 +1670,8 @@ void StartRXMotor2(void const * argument)
                         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
                 }
                 if(PCPacket.StatBIT_4 && PCPacket.StatBIT_5 && PCPacket.StatBIT_6) {
-                    	xQueueOverwrite(ControlM2QHandle, &PCBufPTR);
-				}
+                        xQueueOverwrite(ControlM2QHandle, &PCBufPTR);
+                }
 
         }
   /* USER CODE END StartRXMotor2 */
@@ -1699,8 +1726,8 @@ void StartController(void const * argument)
         float F[2] = {0};
         float Tau[2] = {0};
 
-        float ks_theta = 20;
-        float kd_theta = 5;
+        float ks_theta = 0;
+        float kd_theta = 0;
 
         float ks_r = 200;
         float kd_r = 30;
@@ -1715,112 +1742,118 @@ void StartController(void const * argument)
 
         uint8_t valid = 1;
 
-
         uint8_t *pxRxedMessage;
+
+        uint8_t PCBuf[13] = {0};
+        uint8_t *PCBufPTR;
+
         /* Infinite loop */
         for(;; )
         {
-        			//xSemaphoreTake( ControlM1Handle, portMAX_DELAY );
-        			//xSemaphoreTake( ControlM2Handle, portMAX_DELAY );
+                //xSemaphoreTake( ControlM1Handle, portMAX_DELAY );
+                //xSemaphoreTake( ControlM2Handle, portMAX_DELAY );
 
-        			if(uxQueueMessagesWaiting(ControlM1QHandle) && uxQueueMessagesWaiting(ControlM2QHandle)){
+                if(uxQueueMessagesWaiting(ControlM1QHandle) && uxQueueMessagesWaiting(ControlM2QHandle)) {
 
-                    //Data from Drivers
-                    if(xQueueReceive(ControlM1QHandle, &pxRxedMessage, 0 )) {
-                            memcpy(ControlPacket.M1C, pxRxedMessage, 10);
-                    }
-                    if(xQueueReceive(ControlM2QHandle, &pxRxedMessage, 0 )) {
-                            memcpy(ControlPacket.M2C, pxRxedMessage, 10);
-                    }
+                        //Data from Drivers
+                        if(xQueueReceive(ControlM1QHandle, &pxRxedMessage, 0 )) {
+                                memcpy(ControlPacket.M1C, pxRxedMessage, 10);
+                        }
+                        if(xQueueReceive(ControlM2QHandle, &pxRxedMessage, 0 )) {
+                                memcpy(ControlPacket.M2C, pxRxedMessage, 10);
+                        }
 
-                	if(START==1){
-                		valid = 1;
-                		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+                        if(START==1) {
+                                valid = 1;
+                                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
 
-                        memcpy(F2B.BYTE, ControlPacket.M1C, 2);
-                        I_fbk[0] = F2B.INT16/(pow(2.0,13)/60.0);
+                                memcpy(F2B.BYTE, ControlPacket.M1C, 2);
+                                I_fbk[0] = F2B.INT16/(pow(2.0,13)/60.0);
 
-                        memcpy(F2B.BYTE, ControlPacket.M1P, 4);
-                        phi1 = (F2B.INT32/(4*250.0) + 1)*180.0*(2*PI/360.0);
+                                memcpy(F2B.BYTE, ControlPacket.M1P, 4);
+                                phi1 = (F2B.INT32/(4*250.0) - 1)*(-180.0)*(2*PI/360.0);
 
-                        memcpy(F2B.BYTE, ControlPacket.M1V, 4);
-                        dphi1 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+                                memcpy(F2B.BYTE, ControlPacket.M1V, 4);
+                                dphi1 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
 
-                        memcpy(F2B.BYTE, ControlPacket.M2C, 2);
-                        I_fbk[1] = F2B.INT16/(pow(2.0,13)/60.0);
+                                memcpy(F2B.BYTE, ControlPacket.M2C, 2);
+                                I_fbk[1] = F2B.INT16/(pow(2.0,13)/60.0);
 
-                        memcpy(F2B.BYTE, ControlPacket.M2P, 4);
-                        phi2 = (F2B.INT32/(4*250.0) - 1)*(-180.0)*(2*PI/360.0);
+                                memcpy(F2B.BYTE, ControlPacket.M2P, 4);
+                                phi2 = (F2B.INT32/(4*250.0) + 1)*180.0*(2*PI/360.0);
 
-                        memcpy(F2B.BYTE, ControlPacket.M2V, 4);
-                        dphi2 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
+                                memcpy(F2B.BYTE, ControlPacket.M2V, 4);
+                                dphi2 = (F2B.INT32/(pow(2.0,17)/20000.0))*(1/2000.0)*60.0*(2*PI/60.0);
 
-//                		I_fbk[0] = 0;
-//                		phi1 = (1/2.0)*PI;
-//                		dphi1 = 0;
-//                		I_fbk[1] = 0;
-//						phi2 = (1/2.0)*PI;
-//						dphi2 = 0;
+                                //Forward kinematic mapping
+                                ret = ForwardKinematics(phi1, phi2);
+                                if(ret == NULL) {
+                                	valid = 0;
+                                    START = 0;
+                                    BaseCommandCompile(RXPacket.OPCODE, 0b0001, 0x02, 0x01, 0x00, KILL_BRIDGE_DATA, 1, 2);
+                                    BaseCommandPTR = &BaseCommand[RXPacket.OPCODE];
+                                    xQueueSendToBack( CommandM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                    xQueueSendToBack( CommandM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
+                                }
+                                r_fbk = ret[0];
+                                theta_fbk = ret[1];
 
-                        //Forward kinematic mapping
-                        ret = ForwardKinematics(phi1, phi2);
-                        if(ret == NULL){valid = 0;}
-                        r_fbk = ret[0];
-                        theta_fbk = ret[1];
+                                //Velocity mapping
+                                r_d_fbk = dphi1*((3*sinf(phi1/2.0 + phi2/2.0))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)))
+                                          + dphi2*((3*sinf(phi1/2.0 + phi2/2))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)));
+                                theta_d_fbk = dphi1/2.0 - dphi2/2.0;
 
-                        //Velocity mapping
-                        r_d_fbk = dphi1*((3*sinf(phi1/2.0 + phi2/2.0))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)))
-                                  + dphi2*((3*sinf(phi1/2.0 + phi2/2))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)));
-                        theta_d_fbk = dphi1/2.0 - dphi2/2.0;
+                                //Data from PC
+                                //RXPacketPTR; RXPacket;
 
-                        //Data from PC
-                        //RXPacketPTR; RXPacket;
+                                //Control
+                                JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+                                JT[0][1] = 0.5;
+                                JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+                                JT[1][1] = -0.5;
 
-                        //Control
-                        JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
-                        JT[0][1] = 0.5;
-                        JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
-                        JT[1][1] = -0.5;
+                                //Virtual spring dampener
+                                f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd);
+                                f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd);
 
-                        //Virtual spring dampener
-                        f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd);
-                        f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd);
+                                F[0] = f_r;
+                                F[1] = f_theta;
 
-                        F[0] = f_r;
-                        F[1] = f_theta;
+                                Tau[0] = JT[0][0]*F[0] + JT[0][1]*F[1]; //
+                                Tau[1] = JT[1][0]*F[0] + JT[1][1]*F[1]; //
 
-                        Tau[0] = JT[0][0]*F[0];// + JT[0][1]*F[1];
-                        Tau[1] = JT[1][0]*F[0];// + JT[1][1]*F[1];
+                                //Motor 1 Control
+                                I_cmd[0] = (1/Ki)*Tau[0];
+                                //I_cmd[0] = 0.5*(f_r - 2.421)/1.127;
+                                F2BM1.INT32 = I_cmd[0]*(pow(2.0,15)/60.0);
+                                swap_int32( F2BM1.INT32 );
+                                BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
+                                BaseCommandCompile(CONTROL_CURRENT_M1, 0b0011, 0x02, 0x45, 0x02, F2BM1.BYTE, 2, 0);
+                                if(I_cmd[0] > 30 || I_cmd[0]<-30) {valid = 0; }
+                                if(valid) {xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR); }
 
-                        //Motor 1 Control
-                        I_cmd[0] = -(1/Ki)*Tau[0];
-                        //I_cmd[0] = 0.5*(f_r - 2.421)/1.127;
-                        F2BM1.INT32 = I_cmd[0]*(pow(2.0,15)/60.0);
-                        //F2BM1.INT32 = -5*(pow(2.0,15)/60.0);
-                        swap_int32( F2BM1.INT32 );
-                        BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
-                        BaseCommandCompile(CONTROL_CURRENT_M1, 0b0011, 0x02, 0x45, 0x02, F2BM1.BYTE, 2, 0);
-                        //BaseCommandCompile(CONTROL_CURRENT_M1, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
-                        if(I_cmd[0] > 30 || I_cmd[0]<-30){valid = 0;}
-                        if(valid){xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR);}
+                                //Motor 2 Control
+                                I_cmd[1] = -(1/Ki)*Tau[1];
+                                //I_cmd[1] = 0.5*-(f_r - 2.421)/1.127;
+                                F2BM2.INT32 = I_cmd[1]*(pow(2.0,15)/60.0);
+                                swap_int32( F2BM2.INT32 );
+                                BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
+                                BaseCommandCompile(CONTROL_CURRENT_M2, 0b0011, 0x02, 0x45, 0x02, F2BM2.BYTE, 2, 0);
+                                if(I_cmd[1] > 30 || I_cmd[1]<-30) {valid = 0; }
+                                if(valid) {xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR); }
 
-                        //Motor 2 Control
-                        I_cmd[1] = (1/Ki)*Tau[1];
-                        //I_cmd[1] = 0.5*-(f_r - 2.421)/1.127;
-                        F2BM2.INT32 = I_cmd[1]*(pow(2.0,15)/60.0);
-                        //F2BM2.INT32 = 5*(pow(2.0,15)/60.0);
-                        swap_int32( F2BM2.INT32 );
-                        BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
-                        BaseCommandCompile(CONTROL_CURRENT_M2, 0b0011, 0x02, 0x45, 0x02, F2BM2.BYTE, 2, 0);
-                        //BaseCommandCompile(CONTROL_CURRENT_M2, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
-                        if(I_cmd[1] > 30 || I_cmd[1]<-30){valid = 0;}
-                        if(valid){xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR);}
+                                //PC Logging
+                                ControlLogPacket.I_cmd_0 = I_cmd[0];
+                                ControlLogPacket.I_cmd_1 = I_cmd[1];
+                                ControlLogPacket.f_r = f_r;
+                                ControlLogPacket.f_theta = f_theta;
+                                xQueueOverwrite(ProcessQControlHandle, &ControlLogPacketPTR);
 
-                        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
-                        xSemaphoreGive( TXMotorM1Handle );
-                        xSemaphoreGive( TXMotorM2Handle );
-                	}
-        			}
+                                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
+                                xSemaphoreGive( TXMotorM1Handle );
+                                xSemaphoreGive( TXMotorM2Handle );
+                        }
+                }
 
                 //vTaskDelay(Ts);
         }
@@ -1860,7 +1893,7 @@ void Error_Handler(void)
         while(1)
         {
         }
-  /* USER CODE END Error_Handler */
+  /* USER CODE END Error_Handler */ 
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1885,10 +1918,10 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 /**
   * @}
-  */
+  */ 
 
 /**
   * @}
-*/
+*/ 
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
