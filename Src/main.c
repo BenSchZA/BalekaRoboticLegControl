@@ -106,7 +106,7 @@ uint8_t Ts = 25; //Sampling time in 1/_X_ ms
 uint8_t Td = 3;
 //NB: #define configTICK_RATE_HZ ((TickType_t)_X_000) in FreeRTOSConfig
 
-uint8_t RXBufPC[50];
+uint8_t RXBufPC[100];
 uint8_t RXBufM1[50];
 uint8_t RXBufM2[50];
 
@@ -119,7 +119,7 @@ uint8_t RXBufM2[50];
 
 //Packet data size
 #define PAYLOAD_TX 36
-#define PAYLOAD_RX 43
+#define PAYLOAD_RX 63
 
 //Packet Op-Codes
 #define KILL_BRIDGE 0
@@ -212,13 +212,20 @@ struct __attribute__((__packed__)) RXPacketStruct {
         uint8_t M1P[4];
         uint8_t M2P[4];
 
+        float r_cmd;
+        float theta_cmd;
+
         float k_r;
         float k_theta;
+        float ki_r;
+        float ki_theta;
 
         float kr_s;
         float kr_d;
         float ktheta_s;
         float ktheta_d;
+
+        float k_i;
 
         uint8_t StatBIT_1 : 1;
         uint8_t StatBIT_2 : 1;
@@ -293,10 +300,10 @@ struct ControlPacketStruct {
 struct ControlPacketStruct ControlPacket;
 
 struct __attribute__((__packed__)) ControlLogStruct {
-        float f_r;
-        float f_theta;
-        float I_cmd_0;
-        float I_cmd_1;
+    float I_cmd_0;
+    float I_cmd_1;
+	float f_r;
+    float f_theta;
 };
 
 struct ControlLogStruct ControlLogPacket;
@@ -441,35 +448,35 @@ int main(void)
         defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
         /* definition and creation of TXPC */
-        osThreadDef(TXPC, StartTXPC, osPriorityRealtime, 0, 128);
+        osThreadDef(TXPC, StartTXPC, osPriorityHigh, 0, 128);
         TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
         /* definition and creation of RXPC */
-        osThreadDef(RXPC, StartRXPC, osPriorityRealtime, 0, 128);
+        osThreadDef(RXPC, StartRXPC, osPriorityHigh, 0, 128);
         RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
         /* definition and creation of Heartbeat */
-        osThreadDef(Heartbeat, StartHeartbeat, osPriorityRealtime, 0, 128);
+        osThreadDef(Heartbeat, StartHeartbeat, osPriorityHigh, 0, 128);
         HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
 
         /* definition and creation of TXMotor1 */
-        osThreadDef(TXMotor1, StartTXMotor1, osPriorityRealtime, 0, 128);
+        osThreadDef(TXMotor1, StartTXMotor1, osPriorityHigh, 0, 128);
         TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
 
         /* definition and creation of TXMotor2 */
-        osThreadDef(TXMotor2, StartTXMotor2, osPriorityRealtime, 0, 128);
+        osThreadDef(TXMotor2, StartTXMotor2, osPriorityHigh, 0, 128);
         TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
 
         /* definition and creation of RXMotor1 */
-        osThreadDef(RXMotor1, StartRXMotor1, osPriorityRealtime, 0, 128);
+        osThreadDef(RXMotor1, StartRXMotor1, osPriorityHigh, 0, 128);
         RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
 
         /* definition and creation of RXMotor2 */
-        osThreadDef(RXMotor2, StartRXMotor2, osPriorityRealtime, 0, 128);
+        osThreadDef(RXMotor2, StartRXMotor2, osPriorityHigh, 0, 128);
         RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
         /* definition and creation of Controller */
-        osThreadDef(Controller, StartController, osPriorityRealtime, 0, 500);
+        osThreadDef(Controller, StartController, osPriorityHigh, 0, 500);
         ControllerHandle = osThreadCreate(osThread(Controller), NULL);
 
         /* USER CODE BEGIN RTOS_THREADS */
@@ -783,65 +790,20 @@ void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t IND
         }
 }
 
-//void ControlBaseCommandCompile(uint8_t n, uint8_t CB, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
-//        memset(&ControlBaseCommand[n], 0, sizeof(ControlBaseCommand[0]));
-//
-//        ControlBaseCommand[n].START[0] = 0xA5;
-//        ControlBaseCommand[n].START[1] = 0x3F;
-//        ControlBaseCommand[n].CB = CB;
-//        ControlBaseCommand[n].INDOFF[0] = INDOFF1;
-//        ControlBaseCommand[n].INDOFF[1] = INDOFF2;
-//        ControlBaseCommand[n].LEN = LEN;
-//        CALC_CRCBase = crcCalc(ControlBaseCommand[n].START, 0, 6, 1);
-//        WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-//        ControlBaseCommand[n].CRC1[0] = WORDtoBYTEBase.BYTE[1];
-//        ControlBaseCommand[n].CRC1[1] = WORDtoBYTEBase.BYTE[0];
-//
-//        if(DATA != NULL) {
-//                for(int i = 0; i<LEN*2; i++) {
-//                        ControlBaseCommand[n].DATA[i] = DATA[i];
-//                }
-//                CALC_CRCBase = crcCalc(ControlBaseCommand[n].DATA, 0, LEN*2, 1);
-//                WORDtoBYTEBase.HALFWORD = CALC_CRCBase;
-//                ControlBaseCommand[n].CRC2[0] = WORDtoBYTEBase.BYTE[1];
-//                ControlBaseCommand[n].CRC2[1] = WORDtoBYTEBase.BYTE[0];
-//        }
-//
-//        SNIP = SNIP_LEN;
-//
-//        memcpy(&ControlBaseCommand[n].DATA[4-SNIP], ControlBaseCommand[n].CRC2, 2);
-//
-//        if(SNIP==2) {
-//                memset(&ControlBaseCommand[n].CRC2, 0, 2);
-//        }
-//        if(SNIP==4) {
-//                memset(&ControlBaseCommand[n].DATA, 0, 4);
-//                memset(&ControlBaseCommand[n].CRC2, 0, 2);
-//        }
-//}
-
 void TransmitM1_DMA(uint8_t *data, uint8_t size){
-        /* Start the transmission - an interrupt is generated when the transmission
-           is complete. */
-        //if(HAL_UART_Transmit_DMA(&huart2, data, size) != HAL_OK) { Error_Handler(); }
-        HAL_UART_Transmit_DMA(&M1_UART, data, size);
+        if(HAL_UART_Transmit_DMA(&M1_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 void ReceiveM1_DMA(uint8_t *data, uint8_t size){
-        HAL_UART_Receive_DMA(&M1_UART, data, size);
-        //HAL_UART_Receive(&huart2, data, size, 5);
+		if(HAL_UART_Receive_DMA(&M1_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 void TransmitM2_DMA(uint8_t *data, uint8_t size){
-        /* Start the transmission - an interrupt is generated when the transmission
-           is complete. */
-        //if(HAL_UART_Transmit_DMA(&huart3, data, size) != HAL_OK) { Error_Handler(); }
-        HAL_UART_Transmit_DMA(&M2_UART, data, size);
+		if(HAL_UART_Transmit_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 void ReceiveM2_DMA(uint8_t *data, uint8_t size){
-        HAL_UART_Receive_DMA(&M2_UART, data, size);
-        //HAL_UART_Receive(&huart3, data, size, 5);
+		if(HAL_UART_Receive_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 //Select Call-backs functions called after Transfer complete
@@ -898,33 +860,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 //           port specific. portYIELD_FROM_ISR */
 //        portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 //}
-
-void DMA_XFER_CPLT_Callback(DMA_HandleTypeDef *_hdma){
-        __NOP();
-//	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
-//    BaseType_t xHigherPriorityTaskWoken;
-//    xHigherPriorityTaskWoken = pdFALSE;
-//
-//    if(_hdma == &hdma_uart4_rx) {
-//            xSemaphoreGiveFromISR( PCRXHandle, &xHigherPriorityTaskWoken );
-//    }
-//
-////        if(huart->Instance == USART2 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-////                __HAL_USART_CLEAR_IDLEFLAG(huart);
-////                xSemaphoreGiveFromISR( RXMotorM1Handle, &xHigherPriorityTaskWoken );
-////        }
-////
-////        if(huart->Instance == USART3 && __HAL_USART_GET_FLAG(huart, USART_FLAG_IDLE)) {
-////                __HAL_USART_CLEAR_IDLEFLAG(huart);
-////                xSemaphoreGiveFromISR( RXMotorM2Handle, &xHigherPriorityTaskWoken );
-////        }
-//
-//    /* If xHigherPriorityTaskWoken was set to true you
-//       we should yield.  The actual macro used here is
-//       port specific. portYIELD_FROM_ISR */
-//    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
-//    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
-}
 
 void HAL_UART_EndDMA_RX(UART_HandleTypeDef *huart){
 /* Stop UART DMA Rx request if ongoing */
@@ -1079,11 +1014,6 @@ void StartTXPC(void const * argument)
 
                 memcpy(CurrentPCPacket, PCPacketPTR, sizeof(PCPacket));
 
-//                /* Disable TXEIE and TCIE interrupts */
-//                CLEAR_BIT(huart4.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
-//                /* At end of Tx process, restore huart->gState to Ready */
-//                huart4.gState = HAL_UART_STATE_READY;
-
                 HAL_UART_Transmit_DMA(&PC_UART, CurrentPCPacket, sizeof(PCPacket));
 
                 PCPacket.StatBIT_1 = 0;
@@ -1154,7 +1084,7 @@ void StartRXPC(void const * argument)
 
                                 WORDtoBYTE.BYTE[1] = RXPacket.CRCCheck[0];
                                 WORDtoBYTE.BYTE[0] = RXPacket.CRCCheck[1];
-                                CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, PAYLOAD_RX, 0); //Check entire data CRC
+                                CALC_CRC = crcCalc(&RXPacket.OPCODE, 0, PAYLOAD_RX, 0);
 
                                 if(WORDtoBYTE.HALFWORD==CALC_CRC) {
                                         RX_DATA_VALID = 1;
@@ -1263,8 +1193,8 @@ void StartRXPC(void const * argument)
                                                 }
                                                 break;
                                         case TRIGGER_ONESHOT:
-                                        	TRIGGER = RXPacket.TRIGGER;
-                                        	START = 1;
+                                        		TRIGGER = RXPacket.TRIGGER;
+                                        		START = 1;
                                         default:
                                                 break;
                                         }
@@ -1280,7 +1210,6 @@ void StartRXPC(void const * argument)
 void StartHeartbeat(void const * argument)
 {
         /* USER CODE BEGIN StartHeartbeat */
-
 
         /* Infinite loop */
         for(;; )
@@ -1677,7 +1606,7 @@ void StartController(void const * argument)
 
         float *ret;
 
-        //Negative feedback
+        //Negative position feedback
         float Error_r = 0;
         float Error_r_CV = 0;
         float Error_r_PV = 0;
@@ -1697,15 +1626,14 @@ void StartController(void const * argument)
         float theta_d_fbk = 0;
         float theta_d_cmd = 0;
 
+        //Motor feedback
+        float I_cmd[2] = {0};
+        float I_fbk[2] = {0};
+
         float phi1 = 0;
         float dphi1 = 0;
-        float phi1_cmd = 0;
         float phi2 = 0;
         float dphi2 = 0;
-        float phi2_cmd = 0;
-
-        float dphi1_cmd = 0;
-        float dphi2_cmd = 0;
 
         //Virtual compliance control
         float JT[2][2] = {0};
@@ -1723,18 +1651,17 @@ void StartController(void const * argument)
         float k_r = 0;
         float k_theta = 0;
 
+        float ki_r = 0;
+        float ki_theta = 0;
+
         //Foot forces
         float f_r = 0;
         float f_theta = 0;
-        float f_cal = 5.0156;
 
-        float Ki = 0.119;
-
-        float I_cmd[2] = {0};
-        float I_fbk[2] = {0};
+        //Motor constants
+        float k_i = 0.08; //0.119
 
         uint8_t valid = 1;
-
         uint8_t *pxRxedMessage;
 
         /* Infinite loop */
@@ -1754,12 +1681,17 @@ void StartController(void const * argument)
                         //Data from PC
                         if(RX_DATA_VALID) {
                         	RX_DATA_VALID = 0;
+                        		r_cmd = RXPacket.r_cmd;
+                        		theta_cmd = RXPacket.theta_cmd;
                                 k_r = RXPacket.k_r;
                                 k_theta = RXPacket.k_theta;
+                                ki_r = RXPacket.ki_r;
+                                ki_theta = RXPacket.ki_theta;
                                 ks_r = RXPacket.kr_s;
                                 kd_r = RXPacket.kr_d;
                                 ks_theta = RXPacket.ktheta_s;
                                 kd_theta = RXPacket.ktheta_d;
+                                k_i = RXPacket.k_i;
                         }
 
                         if(START==1) {
@@ -1852,45 +1784,48 @@ void StartController(void const * argument)
                                 //Integral term
                                 Error_r_CV = r_cmd - r_fbk;
                                 Error_r = Error_r_CV - Error_r_PV;
-                                if(Error_r > 0.2){Error_r = 0.2;} //+/- 20cm error window
-                                if(Error_r < -0.2){Error_r = -0.2;}
+                                if(Error_r > 2){Error_r = 2;} //+/- 20cm error window
+                                if(Error_r < -2){Error_r = -2;}
 
                                 Error_theta_CV = theta_cmd - theta_fbk;
                                 Error_theta = Error_theta_CV - Error_theta_PV;
-                                if(Error_theta > 0.4){Error_r = 0.4;} //45 degree error window
-                                if(Error_theta < -0.4){Error_r = -0.4;}
+                                if(Error_theta > 2){Error_r = 2;} //45 degree error window
+                                if(Error_theta < -2){Error_r = -2;}
+
+                                //s_fdbk = r_fbk*theta_fbk;
+                                //s_d_fbk = r_d_fbk*theta_fbk + r_fbk*theta_d_fbk; //chain rule
+
 
                                 //Virtual spring dampener
-                                f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd) - 0.1*(Error_r);
-                                f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd) - 0.1*(Error_theta);
+                                f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd) - ki_r*(Error_r);
+                                f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd) - ki_theta*(Error_theta);
                                 Error_r_PV = Error_r_CV;
                                 Error_theta_PV = Error_theta_CV;
 
                                 F[0] = k_r*(f_r);
-//                                if(F[0] < 3 && F[0] > -3){F[0] = 0;} //+/- 5Nm dead-band
-//
                                 F[1] = k_theta*(f_theta);
-//                                if(F[1] < 3 && F[1] > -3){F[1] = 0;}
 
                                 Tau[0] = JT[0][0]*F[0] + JT[0][1]*F[1];
                                 Tau[1] = JT[1][0]*F[0] + JT[1][1]*F[1];
 
                                 //Motor 1 Control
-                                I_cmd[0] = (1/Ki)*Tau[0];
+                                I_cmd[0] = (1/k_i)*Tau[0];
+                                if(I_cmd[0] > 50) {I_cmd[0] = 50;}
+                                if(I_cmd[0] < -50) {I_cmd[0] = -50;}
                                 F2BM1.INT32 = I_cmd[0]*(pow(2.0,15)/60.0);
                                 swap_int32( F2BM1.INT32 );
                                 BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
                                 BaseCommandCompile(CONTROL_CURRENT_M1, 0b0011, 0x02, 0x45, 0x02, F2BM1.BYTE, 2, 0);
-                                //if(I_cmd[0] > 50 || I_cmd[0] < -50) {valid = 0; }
                                 if(valid) {xQueueOverwrite( ICommandM1QHandle, &BaseCommandPTR); }
 
                                 //Motor 2 Control
-                                I_cmd[1] = -(1/Ki)*Tau[1];
+                                I_cmd[1] = -(1/k_i)*Tau[1];
+                                if(I_cmd[1] > 50) {I_cmd[1] = 50;}
+                                if(I_cmd[1] < -50) {I_cmd[1] = -50;}
                                 F2BM2.INT32 = I_cmd[1]*(pow(2.0,15)/60.0);
                                 swap_int32( F2BM2.INT32 );
                                 BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
                                 BaseCommandCompile(CONTROL_CURRENT_M2, 0b0011, 0x02, 0x45, 0x02, F2BM2.BYTE, 2, 0);
-                                //if(I_cmd[1] > 50 || I_cmd[1] < -50) {valid = 0; }
                                 if(valid) {xQueueOverwrite( ICommandM2QHandle, &BaseCommandPTR); }
 
                                 //PC Logging
