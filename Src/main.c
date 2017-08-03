@@ -1,35 +1,35 @@
 /**
- ******************************************************************************
- * File Name          : main.c
- * Description        : Main program body
- ******************************************************************************
- *
- * COPYRIGHT(c) 2016 STMicroelectronics
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- *   1. Redistributions of source code must retain the above copyright notice,
- *      this list of conditions and the following disclaimer.
- *   2. Redistributions in binary form must reproduce the above copyright notice,
- *      this list of conditions and the following disclaimer in the documentation
- *      and/or other materials provided with the distribution.
- *   3. Neither the name of STMicroelectronics nor the names of its contributors
- *      may be used to endorse or promote products derived from this software
- *      without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- ******************************************************************************
- */
+  ******************************************************************************
+  * File Name          : main.c
+  * Description        : Main program body
+  ******************************************************************************
+  *
+  * COPYRIGHT(c) 2016 STMicroelectronics
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *   1. Redistributions of source code must retain the above copyright notice,
+  *      this list of conditions and the following disclaimer.
+  *   2. Redistributions in binary form must reproduce the above copyright notice,
+  *      this list of conditions and the following disclaimer in the documentation
+  *      and/or other materials provided with the distribution.
+  *   3. Neither the name of STMicroelectronics nor the names of its contributors
+  *      may be used to endorse or promote products derived from this software
+  *      without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  *
+  ******************************************************************************
+  */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 #include "cmsis_os.h"
@@ -53,6 +53,10 @@
 #include <stm32f4xx_hal_uart.h>
 #include <stm32f4xx_hal_usart.h>
 
+#include "rtraj_lookuptable.h"
+#include "thetatraj_lookuptable.h"
+#include "kstraj_lookuptable.h"
+
 //https://github.com/PetteriAimonen/Baselibc
 //#include "memccpy.c"
 //#include "memcmp.c"
@@ -64,12 +68,15 @@
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
+UART_HandleTypeDef huart6;
 DMA_HandleTypeDef hdma_uart4_rx;
 DMA_HandleTypeDef hdma_uart4_tx;
 DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
+DMA_HandleTypeDef hdma_usart6_rx;
+DMA_HandleTypeDef hdma_usart6_tx;
 
 osThreadId defaultTaskHandle;
 osThreadId TXPCHandle;
@@ -118,7 +125,8 @@ uint8_t RXBufM2[50];
 #define PC_UART huart4
 
 //Packet data size
-#define PAYLOAD_TX 36
+#define PAYLOAD_TX 21
+#define PAYLOAD_MISC 32
 #define PAYLOAD_RX 63
 
 //Packet Op-Codes
@@ -132,6 +140,9 @@ uint8_t RXBufM2[50];
 #define GAIN_CHANGE_M1 10
 #define GAIN_CHANGE_M2 13
 #define CONFIG_SET 16
+#define READ_CURRENT 5
+#define READ_POSITION 6
+#define READ_VELOCITY 7
 
 #define CONTROL_CURRENT_M1 40
 #define CONTROL_CURRENT_M2 41
@@ -144,6 +155,7 @@ uint8_t PULLED = 0;
 uint8_t SHOT = 0;
 uint16_t ELAPSED = 0;
 
+uint8_t FOOT_TRIGGER = 0;
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -178,7 +190,7 @@ struct __attribute__((__packed__)) TXPacketStruct {
         // uint8_t GYRY[2];
         // uint8_t GYRZ[2];
         // uint8_t TEMP;
-        uint8_t MISC[16];
+        uint8_t MISC[PAYLOAD_MISC];
 
         uint8_t StatBIT_1 : 1;
         uint8_t StatBIT_2 : 1;
@@ -213,17 +225,17 @@ struct __attribute__((__packed__)) RXPacketStruct {
         uint8_t M2P[4];
 
         float r_cmd;
-        float theta_cmd;
+        float s_cmd;
 
         float k_r;
-        float k_theta;
+        float k_s;
         float ki_r;
-        float ki_theta;
+        float ki_s;
 
         float kr_s;
         float kr_d;
-        float ktheta_s;
-        float ktheta_d;
+        float ks_s;
+        float ks_d;
 
         float k_i;
 
@@ -300,10 +312,14 @@ struct ControlPacketStruct {
 struct ControlPacketStruct ControlPacket;
 
 struct __attribute__((__packed__)) ControlLogStruct {
-    float I_cmd_0;
-    float I_cmd_1;
-	float f_r;
-    float f_theta;
+        float I_cmd_0;
+        float I_cmd_1;
+        float f_r;
+        float f_s;
+        float r_fbk;
+        float s_fbk;
+        float r_d_fbk;
+        float s_d_fbk;
 };
 
 struct ControlLogStruct ControlLogPacket;
@@ -351,6 +367,7 @@ static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_UART4_Init(void);
+static void MX_USART6_UART_Init(void);
 void StartDefaultTask(void const * argument);
 void StartTXPC(void const * argument);
 void StartRXPC(void const * argument);
@@ -397,237 +414,238 @@ float *InverseKinematics(float r, float theta);
 int main(void)
 {
 
-        /* USER CODE BEGIN 1 */
-        /* USER CODE END 1 */
+  /* USER CODE BEGIN 1 */
+  /* USER CODE END 1 */
 
-        /* MCU Configuration----------------------------------------------------------*/
+  /* MCU Configuration----------------------------------------------------------*/
 
-        /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-        HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-        /* Configure the system clock */
-        SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-        /* Initialize all configured peripherals */
-        MX_GPIO_Init();
-        MX_DMA_Init();
-        MX_USART2_UART_Init();
-        MX_USART3_UART_Init();
-        MX_UART4_Init();
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
+  MX_UART4_Init();
+  MX_USART6_UART_Init();
 
-        /* USER CODE BEGIN 2 */
+  /* USER CODE BEGIN 2 */
         initCRC(0); //iNemo CRC False
         initCRC(1); //Driver CRC XModem
         SetupBinarySemaphores();
-        /* USER CODE END 2 */
+  /* USER CODE END 2 */
 
-        /* USER CODE BEGIN RTOS_MUTEX */
+  /* USER CODE BEGIN RTOS_MUTEX */
         /* add mutexes, ... */
-        /* USER CODE END RTOS_MUTEX */
+  /* USER CODE END RTOS_MUTEX */
 
-        /* Create the semaphores(s) */
-        /* definition and creation of M1 */
-        osSemaphoreDef(M1);
-        M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
+  /* Create the semaphores(s) */
+  /* definition and creation of M1 */
+  osSemaphoreDef(M1);
+  M1Handle = osSemaphoreCreate(osSemaphore(M1), 1);
 
-        /* definition and creation of M2 */
-        osSemaphoreDef(M2);
-        M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
+  /* definition and creation of M2 */
+  osSemaphoreDef(M2);
+  M2Handle = osSemaphoreCreate(osSemaphore(M2), 1);
 
-        /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
         /* add semaphores, ... */
-        /* USER CODE END RTOS_SEMAPHORES */
+  /* USER CODE END RTOS_SEMAPHORES */
 
-        /* USER CODE BEGIN RTOS_TIMERS */
+  /* USER CODE BEGIN RTOS_TIMERS */
         /* start timers, add new ones, ... */
-        /* USER CODE END RTOS_TIMERS */
+  /* USER CODE END RTOS_TIMERS */
 
-        /* Create the thread(s) */
-        /* definition and creation of defaultTask */
-        osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-        defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-        /* definition and creation of TXPC */
-        osThreadDef(TXPC, StartTXPC, osPriorityHigh, 0, 128);
-        TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
+  /* definition and creation of TXPC */
+  osThreadDef(TXPC, StartTXPC, osPriorityHigh, 0, 128);
+  TXPCHandle = osThreadCreate(osThread(TXPC), NULL);
 
-        /* definition and creation of RXPC */
-        osThreadDef(RXPC, StartRXPC, osPriorityHigh, 0, 128);
-        RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
+  /* definition and creation of RXPC */
+  osThreadDef(RXPC, StartRXPC, osPriorityHigh, 0, 128);
+  RXPCHandle = osThreadCreate(osThread(RXPC), NULL);
 
-        /* definition and creation of Heartbeat */
-        osThreadDef(Heartbeat, StartHeartbeat, osPriorityHigh, 0, 128);
-        HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
+  /* definition and creation of Heartbeat */
+  osThreadDef(Heartbeat, StartHeartbeat, osPriorityHigh, 0, 128);
+  HeartbeatHandle = osThreadCreate(osThread(Heartbeat), NULL);
 
-        /* definition and creation of TXMotor1 */
-        osThreadDef(TXMotor1, StartTXMotor1, osPriorityHigh, 0, 128);
-        TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
+  /* definition and creation of TXMotor1 */
+  osThreadDef(TXMotor1, StartTXMotor1, osPriorityHigh, 0, 128);
+  TXMotor1Handle = osThreadCreate(osThread(TXMotor1), NULL);
 
-        /* definition and creation of TXMotor2 */
-        osThreadDef(TXMotor2, StartTXMotor2, osPriorityHigh, 0, 128);
-        TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
+  /* definition and creation of TXMotor2 */
+  osThreadDef(TXMotor2, StartTXMotor2, osPriorityHigh, 0, 128);
+  TXMotor2Handle = osThreadCreate(osThread(TXMotor2), NULL);
 
-        /* definition and creation of RXMotor1 */
-        osThreadDef(RXMotor1, StartRXMotor1, osPriorityHigh, 0, 128);
-        RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
+  /* definition and creation of RXMotor1 */
+  osThreadDef(RXMotor1, StartRXMotor1, osPriorityHigh, 0, 128);
+  RXMotor1Handle = osThreadCreate(osThread(RXMotor1), NULL);
 
-        /* definition and creation of RXMotor2 */
-        osThreadDef(RXMotor2, StartRXMotor2, osPriorityHigh, 0, 128);
-        RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
+  /* definition and creation of RXMotor2 */
+  osThreadDef(RXMotor2, StartRXMotor2, osPriorityHigh, 0, 128);
+  RXMotor2Handle = osThreadCreate(osThread(RXMotor2), NULL);
 
-        /* definition and creation of Controller */
-        osThreadDef(Controller, StartController, osPriorityHigh, 0, 500);
-        ControllerHandle = osThreadCreate(osThread(Controller), NULL);
+  /* definition and creation of Controller */
+  osThreadDef(Controller, StartController, osPriorityHigh, 0, 500);
+  ControllerHandle = osThreadCreate(osThread(Controller), NULL);
 
-        /* USER CODE BEGIN RTOS_THREADS */
+  /* USER CODE BEGIN RTOS_THREADS */
         /* add threads, ... */
-        /* USER CODE END RTOS_THREADS */
+  /* USER CODE END RTOS_THREADS */
 
-        /* Create the queue(s) */
-        /* definition and creation of ProcessQM1 */
-        osMessageQDef(ProcessQM1, 1, uint32_t);
-        ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
+  /* Create the queue(s) */
+  /* definition and creation of ProcessQM1 */
+  osMessageQDef(ProcessQM1, 1, uint32_t);
+  ProcessQM1Handle = osMessageCreate(osMessageQ(ProcessQM1), NULL);
 
-        /* definition and creation of ProcessQM2 */
-        osMessageQDef(ProcessQM2, 1, uint32_t);
-        ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
+  /* definition and creation of ProcessQM2 */
+  osMessageQDef(ProcessQM2, 1, uint32_t);
+  ProcessQM2Handle = osMessageCreate(osMessageQ(ProcessQM2), NULL);
 
-        /* definition and creation of ProcessQPC */
-        osMessageQDef(ProcessQPC, 1, uint32_t);
-        ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
+  /* definition and creation of ProcessQPC */
+  osMessageQDef(ProcessQPC, 1, uint32_t);
+  ProcessQPCHandle = osMessageCreate(osMessageQ(ProcessQPC), NULL);
 
-        /* definition and creation of TransmitM1Q */
-        osMessageQDef(TransmitM1Q, 3, uint32_t);
-        TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
+  /* definition and creation of TransmitM1Q */
+  osMessageQDef(TransmitM1Q, 3, uint32_t);
+  TransmitM1QHandle = osMessageCreate(osMessageQ(TransmitM1Q), NULL);
 
-        /* definition and creation of TransmitM2Q */
-        osMessageQDef(TransmitM2Q, 3, uint32_t);
-        TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
+  /* definition and creation of TransmitM2Q */
+  osMessageQDef(TransmitM2Q, 3, uint32_t);
+  TransmitM2QHandle = osMessageCreate(osMessageQ(TransmitM2Q), NULL);
 
-        /* definition and creation of ICommandM1Q */
-        osMessageQDef(ICommandM1Q, 1, uint32_t);
-        ICommandM1QHandle = osMessageCreate(osMessageQ(ICommandM1Q), NULL);
+  /* definition and creation of ICommandM1Q */
+  osMessageQDef(ICommandM1Q, 1, uint32_t);
+  ICommandM1QHandle = osMessageCreate(osMessageQ(ICommandM1Q), NULL);
 
-        /* definition and creation of ICommandM2Q */
-        osMessageQDef(ICommandM2Q, 1, uint32_t);
-        ICommandM2QHandle = osMessageCreate(osMessageQ(ICommandM2Q), NULL);
+  /* definition and creation of ICommandM2Q */
+  osMessageQDef(ICommandM2Q, 1, uint32_t);
+  ICommandM2QHandle = osMessageCreate(osMessageQ(ICommandM2Q), NULL);
 
-        /* definition and creation of PCommandM1Q */
-        osMessageQDef(PCommandM1Q, 1, uint32_t);
-        PCommandM1QHandle = osMessageCreate(osMessageQ(PCommandM1Q), NULL);
+  /* definition and creation of PCommandM1Q */
+  osMessageQDef(PCommandM1Q, 1, uint32_t);
+  PCommandM1QHandle = osMessageCreate(osMessageQ(PCommandM1Q), NULL);
 
-        /* definition and creation of PCommandM2Q */
-        osMessageQDef(PCommandM2Q, 1, uint32_t);
-        PCommandM2QHandle = osMessageCreate(osMessageQ(PCommandM2Q), NULL);
+  /* definition and creation of PCommandM2Q */
+  osMessageQDef(PCommandM2Q, 1, uint32_t);
+  PCommandM2QHandle = osMessageCreate(osMessageQ(PCommandM2Q), NULL);
 
-        /* definition and creation of CommandM1Q */
-        osMessageQDef(CommandM1Q, 3, uint32_t);
-        CommandM1QHandle = osMessageCreate(osMessageQ(CommandM1Q), NULL);
+  /* definition and creation of CommandM1Q */
+  osMessageQDef(CommandM1Q, 3, uint32_t);
+  CommandM1QHandle = osMessageCreate(osMessageQ(CommandM1Q), NULL);
 
-        /* definition and creation of CommandM2Q */
-        osMessageQDef(CommandM2Q, 3, uint32_t);
-        CommandM2QHandle = osMessageCreate(osMessageQ(CommandM2Q), NULL);
+  /* definition and creation of CommandM2Q */
+  osMessageQDef(CommandM2Q, 3, uint32_t);
+  CommandM2QHandle = osMessageCreate(osMessageQ(CommandM2Q), NULL);
 
-        /* definition and creation of ControllerQ */
-        osMessageQDef(ControllerQ, 1, uint32_t);
-        ControllerQHandle = osMessageCreate(osMessageQ(ControllerQ), NULL);
+  /* definition and creation of ControllerQ */
+  osMessageQDef(ControllerQ, 1, uint32_t);
+  ControllerQHandle = osMessageCreate(osMessageQ(ControllerQ), NULL);
 
-        /* definition and creation of ControlM1Q */
-        osMessageQDef(ControlM1Q, 1, uint32_t);
-        ControlM1QHandle = osMessageCreate(osMessageQ(ControlM1Q), NULL);
+  /* definition and creation of ControlM1Q */
+  osMessageQDef(ControlM1Q, 1, uint32_t);
+  ControlM1QHandle = osMessageCreate(osMessageQ(ControlM1Q), NULL);
 
-        /* definition and creation of ControlM2Q */
-        osMessageQDef(ControlM2Q, 1, uint32_t);
-        ControlM2QHandle = osMessageCreate(osMessageQ(ControlM2Q), NULL);
+  /* definition and creation of ControlM2Q */
+  osMessageQDef(ControlM2Q, 1, uint32_t);
+  ControlM2QHandle = osMessageCreate(osMessageQ(ControlM2Q), NULL);
 
-        /* definition and creation of ProcessQControl */
-        osMessageQDef(ProcessQControl, 1, uint32_t);
-        ProcessQControlHandle = osMessageCreate(osMessageQ(ProcessQControl), NULL);
+  /* definition and creation of ProcessQControl */
+  osMessageQDef(ProcessQControl, 1, uint32_t);
+  ProcessQControlHandle = osMessageCreate(osMessageQ(ProcessQControl), NULL);
 
-        /* USER CODE BEGIN RTOS_QUEUES */
+  /* USER CODE BEGIN RTOS_QUEUES */
         /* add queues, ... */
-        /* USER CODE END RTOS_QUEUES */
+  /* USER CODE END RTOS_QUEUES */
 
 
-        /* Start scheduler */
-        osKernelStart();
+  /* Start scheduler */
+  osKernelStart();
 
-        /* We should never get here as control is now taken by the scheduler */
+  /* We should never get here as control is now taken by the scheduler */
 
-        /* Infinite loop */
-        /* USER CODE BEGIN WHILE */
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
         while (1)
         {
-                /* USER CODE END WHILE */
+  /* USER CODE END WHILE */
 
-                /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 3 */
 
         }
-        /* USER CODE END 3 */
+  /* USER CODE END 3 */
 
 }
 
 /** System Clock Configuration
- */
+*/
 void SystemClock_Config(void)
 {
 
-        RCC_OscInitTypeDef RCC_OscInitStruct;
-        RCC_ClkInitTypeDef RCC_ClkInitStruct;
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-        __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_RCC_PWR_CLK_ENABLE();
 
-        __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-        RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-        RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-        RCC_OscInitStruct.HSICalibrationValue = 16;
-        RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-        RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-        RCC_OscInitStruct.PLL.PLLM = 8;
-        RCC_OscInitStruct.PLL.PLLN = 168;
-        RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-        RCC_OscInitStruct.PLL.PLLQ = 4;
-        if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = 16;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-        RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                                      |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-        RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-        RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-        RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-        RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-        if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-        HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-        HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-        /* SysTick_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+  /* SysTick_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
 /* UART4 init function */
 static void MX_UART4_Init(void)
 {
 
-        huart4.Instance = UART4;
-        huart4.Init.BaudRate = 500000;
-        huart4.Init.WordLength = UART_WORDLENGTH_8B;
-        huart4.Init.StopBits = UART_STOPBITS_1;
-        huart4.Init.Parity = UART_PARITY_NONE;
-        huart4.Init.Mode = UART_MODE_TX_RX;
-        huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart4) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 500000;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -635,18 +653,18 @@ static void MX_UART4_Init(void)
 static void MX_USART2_UART_Init(void)
 {
 
-        huart2.Instance = USART2;
-        huart2.Init.BaudRate = 921600;
-        huart2.Init.WordLength = UART_WORDLENGTH_8B;
-        huart2.Init.StopBits = UART_STOPBITS_1;
-        huart2.Init.Parity = UART_PARITY_NONE;
-        huart2.Init.Mode = UART_MODE_TX_RX;
-        huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart2) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 921600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -654,77 +672,110 @@ static void MX_USART2_UART_Init(void)
 static void MX_USART3_UART_Init(void)
 {
 
-        huart3.Instance = USART3;
-        huart3.Init.BaudRate = 921600;
-        huart3.Init.WordLength = UART_WORDLENGTH_8B;
-        huart3.Init.StopBits = UART_STOPBITS_1;
-        huart3.Init.Parity = UART_PARITY_NONE;
-        huart3.Init.Mode = UART_MODE_TX_RX;
-        huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-        huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-        if (HAL_UART_Init(&huart3) != HAL_OK)
-        {
-                Error_Handler();
-        }
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 921600;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+}
+
+/* USART6 init function */
+static void MX_USART6_UART_Init(void)
+{
+
+  huart6.Instance = USART6;
+  huart6.Init.BaudRate = 500000;
+  huart6.Init.WordLength = UART_WORDLENGTH_8B;
+  huart6.Init.StopBits = UART_STOPBITS_1;
+  huart6.Init.Parity = UART_PARITY_NONE;
+  huart6.Init.Mode = UART_MODE_TX_RX;
+  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart6) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
 /**
- * Enable DMA controller clock
- */
+  * Enable DMA controller clock
+  */
 static void MX_DMA_Init(void)
 {
-        /* DMA controller clock enable */
-        __HAL_RCC_DMA1_CLK_ENABLE();
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  __HAL_RCC_DMA2_CLK_ENABLE();
 
-        /* DMA interrupt init */
-        /* DMA1_Stream1_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-        /* DMA1_Stream2_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
-        /* DMA1_Stream3_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-        /* DMA1_Stream4_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
-        /* DMA1_Stream5_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
-        /* DMA1_Stream6_IRQn interrupt configuration */
-        HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
-        HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA interrupt init */
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+  /* DMA1_Stream4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA2_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+  /* DMA2_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream6_IRQn);
 
 }
 
 /** Configure pins as
- * Analog
- * Input
- * Output
- * EVENT_OUT
- * EXTI
- */
+        * Analog
+        * Input
+        * Output
+        * EVENT_OUT
+        * EXTI
+*/
 static void MX_GPIO_Init(void)
 {
 
-        GPIO_InitTypeDef GPIO_InitStruct;
+  GPIO_InitTypeDef GPIO_InitStruct;
 
-        /* GPIO Ports Clock Enable */
-        __HAL_RCC_GPIOA_CLK_ENABLE();
-        __HAL_RCC_GPIOC_CLK_ENABLE();
-        __HAL_RCC_GPIOB_CLK_ENABLE();
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-        /*Configure GPIO pin Output Level */
-        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
+  /*Configure GPIO pin : Foot_Switch_Pin */
+  GPIO_InitStruct.Pin = Foot_Switch_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(Foot_Switch_GPIO_Port, &GPIO_InitStruct);
 
-        /*Configure GPIO pins : PB8 PB9 */
-        GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
-        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-        HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  /*Configure GPIO pins : GPIO_MISC1_Pin GPIO_MISC2_Pin */
+  GPIO_InitStruct.Pin = GPIO_MISC1_Pin|GPIO_MISC2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_MISC1_Pin|GPIO_MISC2_Pin, GPIO_PIN_RESET);
 
 }
 
@@ -753,7 +804,7 @@ int32_t swap_int32( int32_t val )
 void BaseCommandCompile(uint8_t n, uint8_t SeqBits, uint8_t ComBits, uint8_t INDOFF1, uint8_t INDOFF2, uint8_t *DATA, uint8_t LEN, uint8_t SNIP_LEN){
         memset(&BaseCommand[n], 0, sizeof(BaseCommand[0]));
 
-        //ComBits = 0x02 for set and 0x00 for read
+        //ComBits = 0x02 for set and 0x01 for read
         //SeqBits = 0bXXXX according to op-code
 
         BaseCommand[n].START[0] = 0xA5;
@@ -795,21 +846,27 @@ void TransmitM1_DMA(uint8_t *data, uint8_t size){
 }
 
 void ReceiveM1_DMA(uint8_t *data, uint8_t size){
-		if(HAL_UART_Receive_DMA(&M1_UART, data, size) != HAL_OK) { Error_Handler(); }
+        if(HAL_UART_Receive_DMA(&M1_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 void TransmitM2_DMA(uint8_t *data, uint8_t size){
-		if(HAL_UART_Transmit_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
+        if(HAL_UART_Transmit_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 void ReceiveM2_DMA(uint8_t *data, uint8_t size){
-		if(HAL_UART_Receive_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
+        if(HAL_UART_Receive_DMA(&M2_UART, data, size) != HAL_OK) { Error_Handler(); }
 }
 
 //Select Call-backs functions called after Transfer complete
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
         __NOP();
 }
+
+//void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+//	if(GPIO_Pin == Foot_Switch_Pin){
+//		FOOT_TRIGGER = 1;
+//	}
+//}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
         BaseType_t xHigherPriorityTaskWoken;
@@ -898,13 +955,13 @@ float *ForwardKinematics(float phi1, float phi2){
 
         //ret[1] = (ret[1]*360)/(2.0*PI); //To degrees
 
-        if(phi1*360/(2*PI) > 195 || phi1*360/(2*PI) < 25) { //162 90
-                valid = 0;
-        }
-
-        if(phi2*360/(2*PI) > 195 || phi2*360/(2*PI) < 25) {
-                valid = 0;
-        }
+//        if(phi1*360/(2*PI) > 250 || phi1*360/(2*PI) < 15) { //162 90
+//                valid = 0;
+//        }
+//
+//        if(phi2*360/(2*PI) > 250 || phi2*360/(2*PI) < 15) {
+//                valid = 0;
+//        }
 
         if(valid) {
                 return ret;
@@ -953,20 +1010,20 @@ float *InverseKinematics(float r, float theta){
 void StartDefaultTask(void const * argument)
 {
 
-        /* USER CODE BEGIN 5 */
+  /* USER CODE BEGIN 5 */
         vTaskSuspend( NULL );
         /* Infinite loop */
         for(;; )
         {
                 vTaskDelay(500);
         }
-        /* USER CODE END 5 */
+  /* USER CODE END 5 */
 }
 
 /* StartTXPC function */
 void StartTXPC(void const * argument)
 {
-        /* USER CODE BEGIN StartTXPC */
+  /* USER CODE BEGIN StartTXPC */
 
         memset(PCPacketPTR, 0, sizeof(PCPacket));
 
@@ -1004,10 +1061,10 @@ void StartTXPC(void const * argument)
                 }
 
                 if(xQueueReceive( ProcessQControlHandle, &pxRxedMessage, 0 )) {
-                        memcpy(PCPacket.MISC, pxRxedMessage, 16);
+                        memcpy(PCPacket.MISC, pxRxedMessage, sizeof(ControlLogPacket));
                 }
 
-                CALC_CRC = crcCalc(&PCPacket.M1C, 0, PAYLOAD_TX, 0);
+                CALC_CRC = crcCalc(&PCPacket.M1C, 0, PAYLOAD_TX + PAYLOAD_MISC, 0);
                 WORDtoBYTE.HALFWORD = CALC_CRC;
                 PCPacket.CRCCheck[0] = WORDtoBYTE.BYTE[1];
                 PCPacket.CRCCheck[1] = WORDtoBYTE.BYTE[0];
@@ -1027,13 +1084,13 @@ void StartTXPC(void const * argument)
 
                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
         }
-        /* USER CODE END StartTXPC */
+  /* USER CODE END StartTXPC */
 }
 
 /* StartRXPC function */
 void StartRXPC(void const * argument)
 {
-        /* USER CODE BEGIN StartRXPC */
+  /* USER CODE BEGIN StartRXPC */
 
         RXPacket.START[0] = 0x7E;
         RXPacket.START[1] = 0x5B;
@@ -1193,8 +1250,8 @@ void StartRXPC(void const * argument)
                                                 }
                                                 break;
                                         case TRIGGER_ONESHOT:
-                                        		TRIGGER = RXPacket.TRIGGER;
-                                        		START = 1;
+                                                TRIGGER = RXPacket.TRIGGER;
+                                                START = 1;
                                         default:
                                                 break;
                                         }
@@ -1203,32 +1260,32 @@ void StartRXPC(void const * argument)
 
                 }
         }
-        /* USER CODE END StartRXPC */
+  /* USER CODE END StartRXPC */
 }
 
 /* StartHeartbeat function */
 void StartHeartbeat(void const * argument)
 {
-        /* USER CODE BEGIN StartHeartbeat */
+  /* USER CODE BEGIN StartHeartbeat */
 
         /* Infinite loop */
         for(;; )
         {
                 //Read Current
-                BaseCommandCompile(5, 0b1100, 0x01, 0x10, 0x03, NULL, 1, 4);
-                BaseCommandPTR = &BaseCommand[5];
+                BaseCommandCompile(READ_CURRENT, 0b1100, 0x01, 0x10, 0x03, NULL, 1, 4);
+                BaseCommandPTR = &BaseCommand[READ_CURRENT];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
                 //Read Position
-                BaseCommandCompile(6, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
-                BaseCommandPTR = &BaseCommand[6];
+                BaseCommandCompile(READ_POSITION, 0b1111, 0x01, 0x12, 0x00, NULL, 2, 4);
+                BaseCommandPTR = &BaseCommand[READ_POSITION];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
                 //Read Velocity
-                BaseCommandCompile(7, 0b0101, 0x01, 0x11, 0x02, NULL, 2, 4);
-                BaseCommandPTR = &BaseCommand[7];
+                BaseCommandCompile(READ_VELOCITY, 0b0101, 0x01, 0x11, 0x02, NULL, 2, 4);
+                BaseCommandPTR = &BaseCommand[READ_VELOCITY];
                 xQueueSendToBack( TransmitM1QHandle, &BaseCommandPTR, ( TickType_t ) 5);
                 xQueueSendToBack( TransmitM2QHandle, &BaseCommandPTR, ( TickType_t ) 5);
 
@@ -1239,13 +1296,13 @@ void StartHeartbeat(void const * argument)
 
                 xSemaphoreGive(PCTXHandle);
         }
-        /* USER CODE END StartHeartbeat */
+  /* USER CODE END StartHeartbeat */
 }
 
 /* StartTXMotor1 function */
 void StartTXMotor1(void const * argument)
 {
-        /* USER CODE BEGIN StartTXMotor1 */
+  /* USER CODE BEGIN StartTXMotor1 */
         uint8_t *pxRxedMessage;
         /* Infinite loop */
         for(;; )
@@ -1280,13 +1337,13 @@ void StartTXMotor1(void const * argument)
                         else{xSemaphoreGive( RXMotorM1Handle ); }
                 }
         }
-        /* USER CODE END StartTXMotor1 */
+  /* USER CODE END StartTXMotor1 */
 }
 
 /* StartTXMotor2 function */
 void StartTXMotor2(void const * argument)
 {
-        /* USER CODE BEGIN StartTXMotor2 */
+  /* USER CODE BEGIN StartTXMotor2 */
         uint8_t *pxRxedMessage;
         /* Infinite loop */
         for(;; )
@@ -1334,13 +1391,13 @@ void StartTXMotor2(void const * argument)
                 }
 
         }
-        /* USER CODE END StartTXMotor2 */
+  /* USER CODE END StartTXMotor2 */
 }
 
 /* StartRXMotor1 function */
 void StartRXMotor1(void const * argument)
 {
-        /* USER CODE BEGIN StartRXMotor1 */
+  /* USER CODE BEGIN StartRXMotor1 */
 
         uint8_t PCBuf[10] = {0};
         uint8_t *PCBufPTR;
@@ -1459,13 +1516,13 @@ void StartRXMotor1(void const * argument)
                         xQueueOverwrite(ControlM1QHandle, &PCBufPTR);
                 }
         }
-        /* USER CODE END StartRXMotor1 */
+  /* USER CODE END StartRXMotor1 */
 }
 
 /* StartRXMotor2 function */
 void StartRXMotor2(void const * argument)
 {
-        /* USER CODE BEGIN StartRXMotor2 */
+  /* USER CODE BEGIN StartRXMotor2 */
 
         uint8_t PCBuf[10] = {0};
         uint8_t *PCBufPTR;
@@ -1589,13 +1646,13 @@ void StartRXMotor2(void const * argument)
                 }
 
         }
-        /* USER CODE END StartRXMotor2 */
+  /* USER CODE END StartRXMotor2 */
 }
 
 /* StartController function */
 void StartController(void const * argument)
 {
-        /* USER CODE BEGIN StartController */
+  /* USER CODE BEGIN StartController */
 
         union {
                 float FLOAT;
@@ -1611,9 +1668,9 @@ void StartController(void const * argument)
         float Error_r_CV = 0;
         float Error_r_PV = 0;
 
-        float Error_theta = 0;
-        float Error_theta_CV = 0;
-        float Error_theta_PV = 0;
+        float Error_s = 0;
+        float Error_s_CV = 0;
+        float Error_s_PV = 0;
 
         //Spring feedback
         float r_fbk = 0;
@@ -1622,9 +1679,15 @@ void StartController(void const * argument)
         float r_d_cmd = 0;
 
         float theta_fbk = 0;
-        float theta_cmd = 0;
         float theta_d_fbk = 0;
-        float theta_d_cmd = 0;
+
+        float s_fbk = 0;
+        float s_cmd = 0;
+        float s_d_fbk = 0;
+        float s_d_cmd = 0;
+
+        float r_fbk_prev = 0;
+        float theta_fbk_prev = 0;
 
         //Motor feedback
         float I_cmd[2] = {0};
@@ -1637,29 +1700,44 @@ void StartController(void const * argument)
 
         //Virtual compliance control
         float JT[2][2] = {0};
+        float J[2][2] = {0};
         float F[2] = {0};
         float Tau[2] = {0};
 
         //Spring damper constants
-        float ks_theta = 200;
-        float kd_theta = 30;
+        float ks_s = 200;
+        float kd_s = 30;
 
         float ks_r = 200; //200
         float kd_r = 30; //30
 
+        //Virtual joint compliance
+        float f_j_1 = 0;
+        float f_j_2 = 0;
+        float ks_j = 0;
+        float kd_j = 0;
+
+        float phi1_cmd = 0;
+        float phi2_cmd = 0;
+        float dphi1_cmd = 0;
+        float dphi2_cmd = 0;
+
         //Weighting
         float k_r = 0;
-        float k_theta = 0;
+        float k_s = 0;
 
         float ki_r = 0;
-        float ki_theta = 0;
+        float ki_s = 0;
 
         //Foot forces
         float f_r = 0;
-        float f_theta = 0;
+        float f_s = 0;
 
         //Motor constants
         float k_i = 0.08; //0.119
+
+        //Trajectory
+        int i_traj = 0;
 
         uint8_t valid = 1;
         uint8_t *pxRxedMessage;
@@ -1680,17 +1758,17 @@ void StartController(void const * argument)
 
                         //Data from PC
                         if(RX_DATA_VALID) {
-                        	RX_DATA_VALID = 0;
-                        		r_cmd = RXPacket.r_cmd;
-                        		theta_cmd = RXPacket.theta_cmd;
+                                RX_DATA_VALID = 0;
+                                r_cmd = RXPacket.r_cmd;
+                                s_cmd = RXPacket.s_cmd;
                                 k_r = RXPacket.k_r;
-                                k_theta = RXPacket.k_theta;
+                                k_s = RXPacket.k_s;
                                 ki_r = RXPacket.ki_r;
-                                ki_theta = RXPacket.ki_theta;
+                                ki_s = RXPacket.ki_s;
                                 ks_r = RXPacket.kr_s;
                                 kd_r = RXPacket.kr_d;
-                                ks_theta = RXPacket.ktheta_s;
-                                kd_theta = RXPacket.ktheta_d;
+                                ks_s = RXPacket.ks_s;
+                                kd_s = RXPacket.ks_d;
                                 k_i = RXPacket.k_i;
                         }
 
@@ -1730,88 +1808,186 @@ void StartController(void const * argument)
                                 theta_fbk = ret[1];
 
                                 //Velocity mapping
-                                r_d_fbk = dphi1*((3*sinf(phi1/2.0 + phi2/2.0))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)))
-                                          + dphi2*((3*sinf(phi1/2.0 + phi2/2))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)));
-                                theta_d_fbk = dphi1/2.0 - dphi2/2.0;
+//                                r_d_fbk = dphi1*((3*sinf(phi1/2.0 + phi2/2.0))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)))
+//                                          + dphi2*((3*sinf(phi1/2.0 + phi2/2))/40 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow(9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2)/400.0),0.5)));
+//                                theta_d_fbk = dphi1/2.0 - dphi2/2.0;
+//                                r_d_fbk = (r_fbk - r_fbk_prev)/0.005;
+//                                theta_d_fbk = (theta_fbk - theta_fbk_prev)/0.005;
+//                                r_fbk_prev = r_fbk;
+//                                theta_fbk_prev = theta_fbk;
 
                                 //Control
-                                JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
-                                JT[0][1] = 0.5;
-                                JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
-                                JT[1][1] = -0.5;
+                                //Theta
+//                                JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+//                                JT[0][1] = 0.5;
+//                                JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi2/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),0.5));
+//                                JT[1][1] = -0.5;
 
-                                if(SHOT && r_fbk >= 0.38){
-                                	r_cmd = 0.3;
+                                //Arc-length
+//                                JT[0][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2.0))/400.0),(1/2.0)));
+//                                JT[0][1] = (((3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2.0))/400.0),(1/2.0))))*(phi1 - phi2))/2.0 - (3*cosf(phi1/2.0 + phi2/2.0))/40 + pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),(1/2.0))/2.0;
+//                                JT[1][0] = (3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2))/400.0),(1/2.0)));
+//                                JT[1][1] = (3*cosf(phi1/2.0 + phi2/2.0))/40.0 + (((3*sinf(phi1/2.0 + phi2/2.0))/40.0 - (9*cosf(phi1/2.0 + phi2/2.0)*sinf(phi1/2.0 + phi2/2.0))/(800*pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2.0))/400.0),(1/2.0))))*(phi1 - phi2))/2.0 - pow((9/100.0 - (9*pow(sinf(phi1/2.0 + phi2/2.0),2.0))/400.0),(1/2.0))/2.0;
 
-									ks_r = 1200;
-									kd_r = 30;
-									ks_theta = 1000;
-									kd_theta = 80;
+                                JT[0][0] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+                                JT[0][1] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(-3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)+sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
+                                JT[1][0] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+                                JT[1][1] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)-sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
 
-                                	SHOT = 0;
-                                	//TRIGGER = 1; //DANGEROUS!
-                                }
-                                if(PULLED && (ELAPSED > 1000)){
-                                	r_cmd = 0.4;
+//                                J[0][0] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+//                                J[0][1] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+//                                J[1][0] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(-3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)+sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
+//                                J[1][1] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)-sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
 
-                                	ks_r = 2500;
-									kd_r = 0;
-									ks_theta = 200;
-									kd_theta = 30;
+                                J[0][0] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+                                J[0][1] = sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2);
+                                J[1][0] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(-3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)+sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
+                                J[1][1] = cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)+(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*(3.0/4.0E1)-cosf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0))*1.0/sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(9.0/8.0E2))*(phi1-phi2)*(1.0/2.0)-sqrt(pow(sinf(phi1*(1.0/2.0)+phi2*(1.0/2.0)),2.0)*(-9.0/4.0E2)+9.0/1.0E2)*(1.0/2.0);
 
-                                	SHOT = 1;
-                                	PULLED = 0;
-                                	ELAPSED = 0;
-                                }
-                                if(TRIGGER){
-                                	r_cmd = 0.25;
+                                r_d_fbk = J[0][0]*dphi1 + J[0][1]*dphi2;
+                                theta_d_fbk = J[1][0]*dphi1 + J[1][1]*dphi2;
 
-                                	k_r = 1;
-                                	k_theta = 0.001;
-									ks_r = 1200;
-									kd_r = 30;
-									ks_theta = 500;
-									kd_theta = 80;
+                                //Arc-length = r*theta
+                                s_fbk = r_fbk*theta_fbk;
+                                s_d_fbk = r_d_fbk*theta_fbk + r_fbk*theta_d_fbk; //chain rule
 
-                                	ELAPSED = 0;
-                                	TRIGGER = 0;
-                                	PULLED = 1;
-                                }
-                                else{
-                                	ELAPSED++;
-                                }
+                                // if(SHOT && r_fbk >= 0.38) {
+                                //         r_cmd = 0.3;
+                                //
+                                //         k_r = 1;
+                                //         k_s = 0.1;
+                                //         ks_r = 650;
+                                //         kd_r = 15;
+                                //         ks_s = 400;
+                                //         kd_s = 5;
+                                //
+                                //         SHOT = 0;
+                                //         TRIGGER = 1; //DANGEROUS!
+                                // }
+                                // if(PULLED && (ELAPSED > 1000)) {
+                                //         r_cmd = 0.4;
+                                //
+                                //         k_r = 1;
+                                //         k_s = 0.1;
+                                //         ks_r = 1726;
+                                //         kd_r = 0;
+                                //         ks_s = 400;
+                                //         kd_s = 5;
+                                //
+                                //         SHOT = 1;
+                                //         PULLED = 0;
+                                //         ELAPSED = 0;
+                                // }
+                                // if(TRIGGER) {
+                                //         r_cmd = 0.25;
+                                //
+                                //         k_r = 1;
+                                //         k_s = 0.1;
+                                //         ks_r = 650;
+                                //         kd_r = 15;
+                                //         ks_s = 400;
+                                //         kd_s = 5;
+                                //
+                                //         ELAPSED = 0;
+                                //         TRIGGER = 0;
+                                //         PULLED = 1;
+                                // }
+                                // else{
+                                //         ELAPSED++;
+                                // }
+
+
+if(TRIGGER){
+  i_traj++;
+
+  if(i_traj==4000){
+	  TRIGGER = 0;
+	  i_traj = 0;
+	  goto end;
+  }
+   r_cmd = r_traj[i_traj];
+   s_cmd = r_traj[i_traj]*theta_traj[i_traj];
+}
+end:
+
+//if(TRIGGER){
+//  i_traj++;
+//
+//  if(i_traj==2002){
+//	  TRIGGER = 0;
+//	  i_traj = 0;
+//	  goto end;
+//  }
+//   ks_r = ks_traj[i_traj];
+//}
+//end:
+
+                                //FOOT_TRIGGER = !HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_7);
+
+//                                if(TRIGGER){
+//                                	r_cmd = 0.40;
+//                                	k_r = 1;
+//                                	k_s = 0.1;
+//                                	ks_r = 1726;
+//									kd_r = 0;
+//									ks_s = 300;
+//									kd_s = 10;
+//									FOOT_TRIGGER = 0;
+//                                }
+//
+//                                if(TRIGGER && r_fbk>=0.4){
+//                                	r_cmd = 0.3;
+//                                	k_r = 1;
+//									k_s = 0.1;
+//									ks_r = 650;
+//									kd_r = 15;
+//									ks_s = 300;
+//									kd_s = 10;
+//									SHOT = 1;
+//                                }
 
                                 //Integral term
                                 Error_r_CV = r_cmd - r_fbk;
-                                Error_r = Error_r_CV - Error_r_PV;
-                                if(Error_r > 2){Error_r = 2;} //+/- 20cm error window
-                                if(Error_r < -2){Error_r = -2;}
+                                Error_r = Error_r_CV + Error_r_PV;
+                                if(Error_r > 1) {Error_r = 1; }
+                                if(Error_r < -1) {Error_r = -1; }
 
-                                Error_theta_CV = theta_cmd - theta_fbk;
-                                Error_theta = Error_theta_CV - Error_theta_PV;
-                                if(Error_theta > 2){Error_r = 2;} //45 degree error window
-                                if(Error_theta < -2){Error_r = -2;}
-
-                                //s_fdbk = r_fbk*theta_fbk;
-                                //s_d_fbk = r_d_fbk*theta_fbk + r_fbk*theta_d_fbk; //chain rule
-
+                                Error_s_CV = s_cmd - s_fbk;
+                                Error_s = Error_s_CV + Error_s_PV;
+                                if(Error_s > 1) {Error_s = 1;}
+                                if(Error_s < -1) {Error_s = -1;}
 
                                 //Virtual spring dampener
                                 f_r = ks_r*(r_fbk - r_cmd) + kd_r*(r_d_fbk - r_d_cmd) - ki_r*(Error_r);
-                                f_theta = ks_theta*(theta_fbk - theta_cmd) + kd_theta*(theta_d_fbk - theta_d_cmd) - ki_theta*(Error_theta);
+                                f_s = ks_s*(s_fbk - s_cmd) + kd_s*(s_d_fbk - s_d_cmd) - ki_s*(Error_s);
                                 Error_r_PV = Error_r_CV;
-                                Error_theta_PV = Error_theta_CV;
+                                Error_s_PV = Error_s_CV;
 
                                 F[0] = k_r*(f_r);
-                                F[1] = k_theta*(f_theta);
+                                F[1] = k_s*(f_s);
 
                                 Tau[0] = JT[0][0]*F[0] + JT[0][1]*F[1];
                                 Tau[1] = JT[1][0]*F[0] + JT[1][1]*F[1];
 
+//                                if(TRIGGER){
+//									//Virtual joint compliance
+//									ks_j = ks_r;
+//									kd_j = kd_r;
+//
+//									phi1_cmd = 120*(2*PI/360.0);
+//									phi2_cmd = 120*(2*PI/360.0);
+//
+//									f_j_1 = k_r*(ks_j*(phi1 - phi1_cmd) + kd_j*(dphi1 - dphi1_cmd));
+//									f_j_2 = k_r*(ks_j*(phi2 - phi2_cmd) + kd_j*(dphi2 - dphi2_cmd));
+//
+//									Tau[0] = f_j_1;
+//									Tau[1] = f_j_2;
+//                                }
+
                                 //Motor 1 Control
                                 I_cmd[0] = (1/k_i)*Tau[0];
-                                if(I_cmd[0] > 50) {I_cmd[0] = 50;}
-                                if(I_cmd[0] < -50) {I_cmd[0] = -50;}
+                                if(I_cmd[0] > 58) {I_cmd[0] = 58; }
+                                if(I_cmd[0] < -58) {I_cmd[0] = -58; }
                                 F2BM1.INT32 = I_cmd[0]*(pow(2.0,15)/60.0);
                                 swap_int32( F2BM1.INT32 );
                                 BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M1];
@@ -1820,8 +1996,8 @@ void StartController(void const * argument)
 
                                 //Motor 2 Control
                                 I_cmd[1] = -(1/k_i)*Tau[1];
-                                if(I_cmd[1] > 50) {I_cmd[1] = 50;}
-                                if(I_cmd[1] < -50) {I_cmd[1] = -50;}
+                                if(I_cmd[1] > 58) {I_cmd[1] = 58; }
+                                if(I_cmd[1] < -58) {I_cmd[1] = -58; }
                                 F2BM2.INT32 = I_cmd[1]*(pow(2.0,15)/60.0);
                                 swap_int32( F2BM2.INT32 );
                                 BaseCommandPTR = &BaseCommand[CONTROL_CURRENT_M2];
@@ -1832,7 +2008,11 @@ void StartController(void const * argument)
                                 ControlLogPacket.I_cmd_0 = I_cmd[0];
                                 ControlLogPacket.I_cmd_1 = I_cmd[1];
                                 ControlLogPacket.f_r = F[0];
-                                ControlLogPacket.f_theta = F[1];
+                                ControlLogPacket.f_s = F[1];
+                                ControlLogPacket.r_fbk = r_fbk;
+                                ControlLogPacket.s_fbk = s_fbk;
+                                ControlLogPacket.r_d_fbk = Error_r; //TODO
+                                ControlLogPacket.s_d_fbk = Error_s; //TODO
                                 xQueueOverwrite(ProcessQControlHandle, &ControlLogPacketPTR);
 
                                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_8);
@@ -1843,71 +2023,71 @@ void StartController(void const * argument)
 
                 //vTaskDelay(Ts);
         }
-        /* USER CODE END StartController */
+  /* USER CODE END StartController */
 }
 
 /**
- * @brief  Period elapsed callback in non blocking mode
- * @note   This function is called  when TIM2 interrupt took place, inside
- * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
- * a global variable "uwTick" used as application time base.
- * @param  htim : TIM handle
- * @retval None
- */
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM2 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 /* USER CODE BEGIN Callback 0 */
 
 /* USER CODE END Callback 0 */
-        if (htim->Instance == TIM2) {
-                HAL_IncTick();
-        }
+  if (htim->Instance == TIM2) {
+    HAL_IncTick();
+  }
 /* USER CODE BEGIN Callback 1 */
 
 /* USER CODE END Callback 1 */
 }
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @param  None
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @param  None
+  * @retval None
+  */
 void Error_Handler(void)
 {
-        /* USER CODE BEGIN Error_Handler */
+  /* USER CODE BEGIN Error_Handler */
         /* User can add his own implementation to report the HAL error return state */
         while(1)
         {
         }
-        /* USER CODE END Error_Handler */
+  /* USER CODE END Error_Handler */
 }
 
 #ifdef USE_FULL_ASSERT
 
 /**
- * @brief Reports the name of the source file and the source line number
- * where the assert_param error has occurred.
- * @param file: pointer to the source file name
- * @param line: assert_param error line source number
- * @retval None
- */
+   * @brief Reports the name of the source file and the source line number
+   * where the assert_param error has occurred.
+   * @param file: pointer to the source file name
+   * @param line: assert_param error line source number
+   * @retval None
+   */
 void assert_failed(uint8_t* file, uint32_t line)
 {
-        /* USER CODE BEGIN 6 */
+  /* USER CODE BEGIN 6 */
         /* User can add his own implementation to report the file name and line number,
            ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-        /* USER CODE END 6 */
+  /* USER CODE END 6 */
 
 }
 
 #endif
 
 /**
- * @}
- */
+  * @}
+  */
 
 /**
- * @}
- */
+  * @}
+*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

@@ -45,14 +45,24 @@
 #define PC_TX_GPIO_Port GPIOA
 #define PC_RX_Pin GPIO_PIN_1
 #define PC_RX_GPIO_Port GPIOA
-#define Motor1_TX_Pin GPIO_PIN_2
-#define Motor1_TX_GPIO_Port GPIOA
-#define Motor1_RX_Pin GPIO_PIN_3
-#define Motor1_RX_GPIO_Port GPIOA
-#define Motor2_TX_Pin GPIO_PIN_10
-#define Motor2_TX_GPIO_Port GPIOC
-#define Motor2_RX_Pin GPIO_PIN_11
-#define Motor2_RX_GPIO_Port GPIOC
+#define Motor2_TX_Pin GPIO_PIN_2
+#define Motor2_TX_GPIO_Port GPIOA
+#define Motor2_RX_Pin GPIO_PIN_3
+#define Motor2_RX_GPIO_Port GPIOA
+#define Foot_Switch_Pin GPIO_PIN_7
+#define Foot_Switch_GPIO_Port GPIOE
+#define iNemo_TX_Pin GPIO_PIN_6
+#define iNemo_TX_GPIO_Port GPIOC
+#define iNemo_RX_Pin GPIO_PIN_7
+#define iNemo_RX_GPIO_Port GPIOC
+#define Motor1_TX_Pin GPIO_PIN_10
+#define Motor1_TX_GPIO_Port GPIOC
+#define Motor1_RX_Pin GPIO_PIN_11
+#define Motor1_RX_GPIO_Port GPIOC
+#define GPIO_MISC1_Pin GPIO_PIN_8
+#define GPIO_MISC1_GPIO_Port GPIOB
+#define GPIO_MISC2_Pin GPIO_PIN_9
+#define GPIO_MISC2_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
