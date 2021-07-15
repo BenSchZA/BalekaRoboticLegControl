@@ -1,5 +1,7 @@
 # Force control of a robotic leg using a virtual model
-A robust robotic leg platform and testing rig capable of rapid acceleration and high fidelity force control experimentation, developed for the UCT Mechatronics Lab in partial fulfillment of the academic requirements for a Bachelor of Science (Eng.) degree in Mechatronics. The thesis report can be found at: http://www.benjaminscholtz.com/blog/pdfs/thesis-report-final.pdf  
+A robust robotic leg platform and testing rig capable of rapid acceleration and high fidelity force control experimentation, developed for the UCT Mechatronics Lab in partial fulfillment of the academic requirements for a Bachelor of Science (Eng.) degree in Mechatronics.
+
+See https://youtu.be/sPJ2xJNLG1A for a video of the robot in action and an overview of the results.
 
 **Research Questions**:
 1. Is a virtual model a suitable replacement for accurate dynamic modelling in complex robotic topologies? 
